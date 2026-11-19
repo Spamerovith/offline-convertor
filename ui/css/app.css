@@ -216,7 +216,7 @@ body.dragging .drop .drop-text, body.dragging .drop .drop-actions { opacity: 0.3
 
 /* Estimate */
 .estimate { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4) var(--s-8); font: var(--t-footnote); color: var(--c-text2); min-height: 20px; }
-.estimate .who { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.estimate .who { flex-basis: 100%; overflow-wrap: anywhere; }
 .estimate .lvl { display: inline-flex; align-items: center; gap: 6px; color: var(--c-text); font-weight: 500; }
 .estimate .bars { display: inline-flex; gap: 2px; }
 .estimate .bars i { width: 4px; height: 12px; border-radius: 1px; background: var(--c-hover); }

@@ -626,6 +626,42 @@ pub fn run(src: &Path, opts: &VideoOpts, ctx: &Ctx) -> JobResult {
         }
     }
 
+    // A size or bitrate too small for the frame turns into blocks: lower the resolution instead
+    // (only when the user left «Разрешение» on «Как у исходника»).
+    let mut opts = opts.clone();
+    if let (Some(k), Some(f), Some(v)) = (video_kbps, fam, info.video.as_ref()) {
+        if opts.height == 0 && container != "gif" && v.width > 0 && v.height > 0 {
+            let fps = if opts.fps > 0.0 && (v.fps == 0.0 || opts.fps < v.fps) { opts.fps } else if v.fps > 0.0 { v.fps } else { 30.0 };
+            let eff = match f {
+                Family::Av1 => 1.0,
+                Family::Hevc | Family::Vp9 => 0.8,
+                Family::H264 => 0.6,
+                _ => 0.45,
+            };
+            let bpp = |h: u32| {
+                let w = v.width as f64 * h as f64 / v.height as f64;
+                k as f64 * 1000.0 / (w * h as f64 * fps) * eff
+            };
+            const MIN_BPP: f64 = 0.012;
+            if bpp(v.height) < MIN_BPP {
+                let h = [1440u32, 1080, 720, 540, 480, 360]
+                    .into_iter()
+                    .filter(|h| *h < v.height)
+                    .find(|h| bpp(*h) >= MIN_BPP)
+                    .unwrap_or(360.min(v.height));
+                if h < v.height {
+                    opts.height = h;
+                    let why = format!("Разрешение уменьшено до {h}p, чтобы уложиться в размер без кубиков");
+                    note = Some(match note {
+                        Some(n) => format!("{n} · {why}"),
+                        None => why,
+                    });
+                }
+            }
+        }
+    }
+    let opts = &opts;
+
     let duration_for_progress = if dur > 0.0 { dur } else { 1.0 };
     let stage_label = std::sync::Mutex::new(String::new());
     let progress = |f: f64, speed: f64| {
@@ -659,6 +695,7 @@ pub fn run(src: &Path, opts: &VideoOpts, ctx: &Ctx) -> JobResult {
     let multi = gpu::job_devices().len() > 1;
     let mut attempt_kbps = video_kbps;
     let mut corrected = false;
+    let mut corrections = 0u32;
     let mut quality_retry = false;
     let mut q_override = opts.quality;
     let mut last_err = String::new();
@@ -696,7 +733,8 @@ pub fn run(src: &Path, opts: &VideoOpts, ctx: &Ctx) -> JobResult {
         let out_size = super::file_size(&dst);
         // Target size correction: one more pass with a corrected bitrate.
         if let (Some(tb), Some(k)) = (target_bytes, attempt_kbps) {
-            if out_size > tb + tb / 33 && !corrected {
+            if out_size > tb + tb / 50 && corrections < 2 {
+                corrections += 1;
                 corrected = true;
                 let factor = tb as f64 / out_size as f64 * 0.97;
                 attempt_kbps = Some(((k as f64) * factor).max(40.0) as u32);

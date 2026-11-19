@@ -51,6 +51,32 @@ const EXT = {
 };
 
 const QUALITY_HINT = 'Выберите качество итогового файла. Чем выше качество, тем больше размер файла. Понижение качества уменьшит размер файла';
+// Compression level → the engine's 0..100 quality (calibrated by VMAF/SSIM: 85 = visually lossless)
+const LEVEL_Q = { high: 93, balanced: 85, strong: 72 };
+const levelOf = (q) => (q >= 90 ? 'high' : q >= 78 ? 'balanced' : 'strong');
+const levelField = (hints, show) => ({
+  type: 'seg', key: 'level', label: 'Степень сжатия', show,
+  options: [['high', 'Слабая'], ['balanced', 'Оптимальная'], ['strong', 'Сильная']], hints,
+});
+const VIDEO_LEVEL_HINTS = {
+  high: 'Максимальное качество, файл меньше в 2-4 раза',
+  balanced: 'На глаз как исходник, файл меньше в 3-10 раз',
+  strong: 'Самый маленький файл, на мелких деталях возможна потеря чёткости',
+};
+const AUDIO_LEVEL_HINTS = {
+  high: 'Звук не отличить от исходника',
+  balanced: 'Без слышимых потерь для музыки и речи',
+  strong: 'Самый маленький файл, подходит для речи и подкастов',
+};
+const SIZE_MODE = (what) => ({
+  type: 'seg', key: 'size_mode', label: 'Как сжимать',
+  options: [['quality', 'По качеству'], ['size', 'До размера'], ['bitrate', `По битрейту`]],
+  hints: {
+    quality: `Размер подберётся сам - ${what} будет сжато настолько, насколько можно без заметных потерь`,
+    size: 'Точный размер итогового файла',
+    bitrate: 'Для тех, кто знает нужный битрейт',
+  },
+});
 const RES_OPTIONS = [[0, 'Как у исходника'], [2160, '4K · 2160p'], [1440, '1440p'], [1080, '1080p'], [720, '720p'], [480, '480p'], [360, '360p']];
 const FPS_OPTIONS = [[0, 'Как у исходника'], [60, '60 кадров/с'], [50, '50 кадров/с'], [30, '30 кадров/с'], [25, '25 кадров/с'], [24, '24 кадра/с']];
 
@@ -58,25 +84,29 @@ const TOOLS = {
   home: {
     title: 'Пакетное сжатие', nav: 'Пакетное сжатие', icon: 'layers', tool: 'auto',
     accept: ['video', 'audio', 'image', 'pdf'], formats: 'Видео, фото, аудио и PDF - любое количество',
-    defaults: { quality: 85 },
+    defaults: { level: 'balanced' },
     fields: [
       { type: 'kinds' },
-      { type: 'slider', key: 'quality', label: 'Качество', hint: QUALITY_HINT },
-      { type: 'note', text: 'Видео, фото, аудио и PDF сжимаются со своими настройками из разделов «Сжатие»; ползунок задаёт общее качество' },
+      levelField({
+        high: 'Максимальное качество, файлы уменьшаются меньше',
+        balanced: 'Без заметных потерь - лучший баланс размера и качества',
+        strong: 'Самые маленькие файлы, на мелких деталях возможны потери',
+      }),
+      { type: 'note', text: 'Формат, разрешение и прочее для каждого вида файлов берутся из разделов «Сжатие»' },
     ],
   },
   'compress-video': {
     group: 'compress', title: 'Сжатие видео', nav: 'Видео', icon: 'video', tool: 'video', accept: ['video'],
     formats: 'MP4, MKV, MOV, AVI, WEBM и другие',
-    defaults: { mode: 'compress', format: 'same', codec: 'auto', quality: 85, target_mb: null, bitrate_kbps: null, height: 0, fps: 0, audio: 'auto', hw: 'auto', speed: 'balanced' },
+    defaults: { mode: 'compress', format: 'same', codec: 'auto', size_mode: 'quality', level: 'balanced', target_mb: null, bitrate_kbps: null, height: 0, fps: 0, audio: 'auto', hw: 'auto', speed: 'balanced' },
     fields: [
       { type: 'reco' },
-      { type: 'slider', key: 'quality', label: 'Качество', hint: QUALITY_HINT },
-      { type: 'sep' },
-      { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '1 - 65536', unit: 'MB', min: 1, max: 65536, step: 'any' },
-      { type: 'unit', key: 'bitrate_kbps', label: 'Изменить битрейт видео:', placeholder: '1 - 100000', unit: 'kbps', min: 1, max: 100000, step: 1,
-        info: 'Пусто - приложение само подберёт битрейт по ползунку качества. Размер файла важнее битрейта, если заданы оба' },
-      { type: 'estimate' },
+      SIZE_MODE('видео'),
+      levelField(VIDEO_LEVEL_HINTS, (o) => o.size_mode === 'quality'),
+      { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '1 - 65536', unit: 'MB', min: 1, max: 65536, step: 'any', show: (o) => o.size_mode === 'size',
+        info: 'Размер каждого итогового файла вместе со звуком. Если размер слишком мал для разрешения видео, разрешение уменьшится само, чтобы не было кубиков' },
+      { type: 'unit', key: 'bitrate_kbps', label: 'Изменить битрейт видео:', placeholder: '1 - 100000', unit: 'kbps', min: 1, max: 100000, step: 1, show: (o) => o.size_mode === 'bitrate' },
+      { type: 'estimate', show: (o) => o.size_mode !== 'quality' },
       { type: 'sep' },
       { type: 'select', key: 'height', label: 'Разрешение', options: RES_OPTIONS, num: true },
       { type: 'select', key: 'fps', label: 'Частота кадров', options: FPS_OPTIONS, num: true },
@@ -101,13 +131,14 @@ const TOOLS = {
   'compress-audio': {
     group: 'compress', title: 'Сжатие аудио', nav: 'Аудио', icon: 'music', tool: 'audio', accept: ['audio'],
     formats: 'MP3, WAV, FLAC, M4A, OGG, OPUS, WMA',
-    defaults: { mode: 'compress', format: 'same', quality: 85, target_mb: null, bitrate_kbps: null },
+    defaults: { mode: 'compress', format: 'same', size_mode: 'quality', level: 'balanced', target_mb: null, bitrate_kbps: null },
     fields: [
-      { type: 'slider', key: 'quality', label: 'Качество', hint: QUALITY_HINT },
+      SIZE_MODE('аудио'),
+      levelField(AUDIO_LEVEL_HINTS, (o) => o.size_mode === 'quality'),
+      { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '1 - 65536', unit: 'MB', min: 1, max: 65536, step: 'any', show: (o) => o.size_mode === 'size' },
+      { type: 'unit', key: 'bitrate_kbps', label: 'Изменить битрейт аудио:', placeholder: '8 - 512', unit: 'kbps', min: 8, max: 512, step: 1, show: (o) => o.size_mode === 'bitrate' },
       { type: 'sep' },
       { type: 'select', key: 'format', label: 'Формат результата', options: [['same', 'Как у исходника'], ['opus', 'OPUS - лучшее сжатие'], ['mp3', 'MP3'], ['m4a', 'AAC (M4A)']] },
-      { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '1 - 65536', unit: 'MB', min: 1, max: 65536, step: 'any' },
-      { type: 'unit', key: 'bitrate_kbps', label: 'Изменить битрейт аудио:', placeholder: '8 - 512', unit: 'kbps', min: 8, max: 512, step: 1 },
     ],
   },
   'compress-pdf': {
@@ -122,12 +153,12 @@ const TOOLS = {
   'convert-video': {
     group: 'convert', title: 'Видео-конвертер', nav: 'Видео', icon: 'video', tool: 'video', accept: ['video'],
     formats: 'В MP4, MKV, WEBM, MOV, AVI, FLV, WMV, MPEG, 3GP, TS, M4V, OGV, GIF',
-    defaults: { mode: 'convert', format: 'mp4', codec: 'auto', quality: 85, height: 0, fps: 0, audio: 'auto', trim_start: null, trim_end: null, gif_fps: 15, gif_width: 480, hw: 'auto', speed: 'balanced' },
+    defaults: { mode: 'convert', format: 'mp4', codec: 'auto', level: 'high', height: 0, fps: 0, audio: 'auto', trim_start: null, trim_end: null, gif_fps: 15, gif_width: 480, hw: 'auto', speed: 'balanced' },
     fields: [
       { type: 'chips', key: 'format', label: 'Конвертировать в', options: ['mp4', 'mkv', 'webm', 'mov', 'avi', 'flv', 'wmv', 'mpeg', '3gp', 'ts', 'm4v', 'ogv', 'gif'].map((f) => [f, f.toUpperCase()]) },
       { type: 'select', key: 'codec', label: 'Видеокодек', show: (o) => ['mp4', 'mkv', 'webm', 'mov', 'm4v', 'ts'].includes(o.format),
         options: [['auto', 'Авто'], ['h264', 'H.264 - максимальная совместимость'], ['hevc', 'HEVC (H.265)'], ['av1', 'AV1'], ['vp9', 'VP9'], ['copy', 'Без перекодирования (мгновенно)']] },
-      { type: 'slider', key: 'quality', label: 'Качество', hint: QUALITY_HINT, show: (o) => o.format !== 'gif' && o.codec !== 'copy' },
+      levelField(VIDEO_LEVEL_HINTS, (o) => o.format !== 'gif' && o.codec !== 'copy'),
       { type: 'select', key: 'gif_fps', label: 'Кадров в секунду (GIF)', options: [[10, '10'], [15, '15'], [20, '20'], [25, '25'], [30, '30']], num: true, show: (o) => o.format === 'gif' },
       { type: 'select', key: 'gif_width', label: 'Ширина GIF', options: [[320, '320 px'], [480, '480 px'], [640, '640 px'], [800, '800 px'], [0, 'Как у исходника']], num: true, show: (o) => o.format === 'gif' },
       { type: 'sep' },
@@ -226,7 +257,7 @@ function saveSettingsSoon() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     const s = state.settings;
-    s.tool_options = { _v2: true };
+    s.tool_options = { _v2: true, _v3: true };
     for (const [id, t] of Object.entries(state.tools)) s.tool_options[id] = t.opts;
     invoke('save_settings', { s }).catch(() => {});
   }, 400);
@@ -423,6 +454,7 @@ function fieldHtml(f, o, toolId) {
         <div class="seg" role="group" aria-label="${esc(f.label)}">
           ${f.options.map(([val, lab]) => `<button type="button" class="ui-focus" data-key="${f.key}" data-val="${val}" aria-pressed="${val === v}">${esc(lab)}</button>`).join('')}
         </div>
+        ${f.hints?.[v] ? `<p class="hint">${esc(f.hints[v])}</p>` : ''}
       </div>`;
     }
     case 'switch': {
@@ -605,40 +637,53 @@ function updateEstimate() {
   if (!el) return;
   const o = state.tools[state.current].opts;
   const items = [...state.tools[state.current].items.values()].filter((i) => i.info?.video && i.info.duration > 0);
-  if (!(o.target_mb > 0 || o.bitrate_kbps > 0)) {
-    el.innerHTML = '<span>Поля пустые - размер и битрейт подберутся автоматически по качеству</span>';
+  const useSize = o.size_mode === 'size' && o.target_mb > 0;
+  const useRate = o.size_mode === 'bitrate' && o.bitrate_kbps > 0;
+  if (!useSize && !useRate) {
+    el.innerHTML = `<span>Пусто - ${o.size_mode === 'size' ? 'размер' : 'битрейт'} подберётся автоматически</span>`;
     return;
   }
   if (!items.length) {
     el.innerHTML = '<span>Добавьте видео, чтобы увидеть ожидаемое качество</span>';
     return;
   }
+  // Same model as the engine: below MIN_BPP the resolution is lowered instead of producing blocks.
   const caps = state.sys?.caps;
   const codec = o.codec === 'auto' ? caps?.recommended_codec || 'av1' : o.codec;
-  const eff = { av1: 1, hevc: 0.78, h264: 0.55 }[codec] || 0.8;
-  let worst = Infinity, worstItem = null, bigger = 0;
+  const eff = { av1: 1, hevc: 0.8, h264: 0.6 }[codec] || 0.8;
+  const MIN_BPP = 0.012;
+  let worst = Infinity, worstItem = null, worstH = 0, bigger = 0;
   for (const it of items) {
     const v = it.info.video;
-    const h = o.height > 0 && o.height < v.height ? o.height : v.height;
-    const w = v.width * (h / v.height);
-    const fps = o.fps > 0 && o.fps < v.fps ? o.fps : v.fps || 30;
+    if (!(v.width > 0 && v.height > 0)) continue;
+    const fps = o.fps > 0 && (!v.fps || o.fps < v.fps) ? o.fps : v.fps || 30;
     let kbps;
-    if (o.target_mb > 0) {
-      if (o.target_mb * 1048576 >= it.size) { bigger++; continue; }
-      kbps = (o.target_mb * 1048576 * 8) / 1000 / it.info.duration * 0.975 - (it.info.audio.length ? 128 : 0);
+    if (useSize) {
+      if (o.target_mb * 1048576 >= it.size && !(o.height > 0)) { bigger++; continue; }
+      const total = (o.target_mb * 1048576 * 8) / 1000 / it.info.duration * 0.975;
+      const ak = it.info.audio?.length ? (total < 400 ? 48 : total < 1200 ? 96 : 128) * it.info.audio.length : 0;
+      kbps = Math.max(50, total - ak);
     } else kbps = o.bitrate_kbps;
-    const bpp = (kbps * 1000) / (w * h * fps) * eff;
-    if (bpp < worst) { worst = bpp; worstItem = it; }
+    const bppAt = (h) => (kbps * 1000) / (v.width * (h / v.height) * h * fps) * eff;
+    let h = o.height > 0 && o.height < v.height ? o.height : v.height;
+    if (!(o.height > 0) && bppAt(h) < MIN_BPP) {
+      const lower = [1440, 1080, 720, 540, 480, 360].filter((x) => x < v.height);
+      h = lower.find((x) => bppAt(x) >= MIN_BPP) ?? Math.min(360, v.height);
+    }
+    const bpp = bppAt(h);
+    if (Number.isFinite(bpp) && bpp < worst) { worst = bpp; worstItem = it; worstH = h < v.height ? h : 0; }
   }
   if (!worstItem) {
-    el.innerHTML = `<span>${bigger > 1 ? 'Файлы уже меньше' : 'Файл уже меньше'} заданного размера - будет применён режим качества</span>`;
+    el.innerHTML = `<span>${bigger > 1 ? 'Файлы уже меньше' : 'Файл уже меньше'} заданного размера - будет сжат по качеству</span>`;
     return;
   }
-  const levels = [[0.07, 'Отличное', 4], [0.04, 'Хорошее', 3], [0.022, 'Среднее', 2], [0, 'Заметные потери', 1]];
+  const levels = [[0.07, 'Отличное', 4], [0.04, 'Хорошее', 3], [0.022, 'Среднее', 2], [-Infinity, 'Заметные потери', 1]];
   const [, name, n] = levels.find(([t]) => worst >= t);
   const bars = [1, 2, 3, 4].map((k) => `<i class="${k <= n ? 'on' : ''}"></i>`).join('');
-  const who = items.length > 1 ? `<span class="who">Хуже всего у «${esc(worstItem.name)}»</span>` : '';
-  el.innerHTML = `<span>Ожидаемое качество:</span><span class="lvl"><span class="bars" aria-hidden="true">${bars}</span>${name}</span>${who}`;
+  const notes = [];
+  if (worstH && !(o.height > 0)) notes.push(`Разрешение уменьшится до ${worstH}p, чтобы не было кубиков`);
+  if (items.length > 1) notes.push(`Хуже всего у «${esc(worstItem.name)}»`);
+  el.innerHTML = `<span>Ожидаемое качество:</span><span class="lvl"><span class="bars" aria-hidden="true">${bars}</span>${name}</span>${notes.map((t) => `<span class="who">${t}</span>`).join('')}`;
 }
 
 // ── Output: kept until «Загрузить на диск», or saved automatically ───
@@ -861,7 +906,7 @@ function rowInner(it) {
     right = `<span class="state">Отменено</span>
       <button class="icon-btn ui-press ui-press--on-dark ui-focus" type="button" data-act="remove" aria-label="Убрать из списка">${icon('x', 16)}</button>`;
   }
-  let note = it.state === 'done' && it.result?.note ? `<span class="sep">·</span><span class="note">${esc(it.result.note)}</span>` : '';
+  let note = it.state === 'done' && it.result?.note ? `<span class="sep">·</span><span class="note" title="${esc(it.result.note)}">${esc(it.result.note)}</span>` : '';
   if (it.state === 'done' && it.saved) note += `<span class="sep">·</span><span class="note saved" title="${esc(it.saved)}">${icon('check', 16)}${esc(baseName(it.saved))}</span>`;
   const preview = it.state === 'done' && it.showText && it.result?.text != null
     ? `<div class="text-preview">${esc(it.result.text || 'Текст не найден')}</div>` : '';
@@ -956,13 +1001,18 @@ function updateSummary() {
   const items = [...state.tools[state.current].items.values()];
   const ready = items.filter((i) => ['ready', 'error', 'cancelled'].includes(i.state)).length;
   const active = items.filter((i) => i.state === 'running' || i.state === 'queued').length;
+  const done = items.filter((i) => i.state === 'done').length;
+  const again = !ready && !active && done > 0;
   const startBtn = $('#start');
   if (active) el.textContent = `В работе: ${active} из ${items.length}`;
   else if (ready) el.textContent = `К обработке: ${ready} ${plural(ready, 'файл', 'файла', 'файлов')}`;
-  else if (items.length) el.textContent = 'Всё готово';
+  else if (again) el.textContent = 'Всё готово. Поменяйте настройки и обработайте заново';
   else el.textContent = 'Добавьте файлы';
-  startBtn.disabled = ready === 0;
-  startBtn.setAttribute('aria-disabled', String(ready === 0));
+  const lbl = $('#startLabel');
+  if (lbl) lbl.textContent = again ? 'Обработать заново' : 'Начать';
+  const off = !ready && !again;
+  startBtn.disabled = off;
+  startBtn.setAttribute('aria-disabled', String(off));
 }
 
 async function onRowAction(e) {
@@ -1016,21 +1066,47 @@ function cancelAllInTool() {
 // Empty fields mean "automatic": leave them out so the engine uses its defaults.
 const clean = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== ''));
 
+// UI-only keys turn into what the engine understands: the level becomes a quality value and
+// only the field of the chosen «Как сжимать» mode is sent.
+function engineOptions(src, level) {
+  const o = { ...src };
+  const lv = level || o.level;
+  if (lv) o.quality = LEVEL_Q[lv] ?? 85;
+  if ('size_mode' in o) {
+    if (o.size_mode !== 'size') delete o.target_mb;
+    if (o.size_mode !== 'bitrate') delete o.bitrate_kbps;
+  }
+  delete o.level;
+  delete o.size_mode;
+  return clean(o);
+}
+
 function jobOptions(id) {
   const def = TOOLS[id];
-  const o = clean(state.tools[id].opts);
-  if (def.tool !== 'auto') return o;
-  // Batch: each kind uses its compress settings with the shared quality.
-  const q = o.quality;
-  const pick = (tid) => clean({ ...state.tools[tid].opts, mode: 'compress', quality: q });
-  return { video: pick('compress-video'), image: pick('compress-image'), audio: pick('compress-audio'), pdf: pick('compress-pdf') };
+  const o = state.tools[id].opts;
+  if (def.tool !== 'auto') return engineOptions(o);
+  // Batch: each kind uses its own compress settings with the shared compression level;
+  // video and audio are compressed by quality (one size target makes no sense for a mixed batch).
+  const lv = o.level || 'balanced';
+  const pick = (tid, extra = {}) => engineOptions({ ...state.tools[tid].opts, mode: 'compress', ...extra }, lv);
+  return {
+    video: pick('compress-video', { size_mode: 'quality' }),
+    audio: pick('compress-audio', { size_mode: 'quality' }),
+    image: pick('compress-image'),
+    pdf: pick('compress-pdf'),
+  };
 }
 
 function start() {
   const id = state.current;
   const def = TOOLS[id];
   const t = state.tools[id];
-  const todo = [...t.items.values()].filter((i) => ['ready', 'error', 'cancelled'].includes(i.state));
+  let todo = [...t.items.values()].filter((i) => ['ready', 'error', 'cancelled'].includes(i.state));
+  if (!todo.length) {
+    // Everything is done: run the finished files again with the current settings.
+    todo = [...t.items.values()].filter((i) => i.state === 'done');
+    for (const it of todo) if (isUnsaved(it)) invoke('discard_result', { path: it.result.path });
+  }
   if (!todo.length) { toast('Добавьте файлы для обработки'); return; }
   const opts = jobOptions(id);
   const mode = outMode();
@@ -1263,6 +1339,15 @@ async function boot() {
   // v2: the slow UHQ mode stopped being the default (it was saved as "quality" by v1).
   const cv = state.tools['compress-video'].opts;
   if (!state.settings.tool_options?._v2 && cv.speed === 'quality') cv.speed = 'balanced';
+  // v3: quality sliders of video/audio/batch became a compression level, and size/bitrate a mode.
+  if (!state.settings.tool_options?._v3) {
+    for (const id of ['home', 'compress-video', 'compress-audio', 'convert-video']) {
+      const o = state.tools[id].opts;
+      if (typeof o.quality === 'number') o.level = levelOf(o.quality);
+      delete o.quality;
+      if ('size_mode' in TOOLS[id].defaults) o.size_mode = o.target_mb > 0 ? 'size' : o.bitrate_kbps > 0 ? 'bitrate' : 'quality';
+    }
+  }
   saveSettingsSoon();
   renderNav();
   go('home');
