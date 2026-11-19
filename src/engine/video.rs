@@ -467,10 +467,24 @@ fn build(
                     }
                 }
                 (Family::Av1, Hw::Cpu) => {
-                    a.extend(["-c:v", "libsvtav1", "-preset", "6", "-svtav1-params", "tune=0:enable-overlays=1:scd=1"].map(os));
+                    // Measured on 1080p60 at 1.4 Mbit/s: preset 7 VMAF 87 (encode time 0.6× the clip length), 6 - 88 (0.9×), 5 - 89.4 (1.2×), 4 - 90 (4×)
+                    let h = if target_h > 0 { target_h } else { v.height };
+                    let w = if v.height > 0 { v.width as f64 * h as f64 / v.height as f64 } else { 1920.0 };
+                    let heavy = w * h as f64 * v.fps.max(30.0) > 1920.0 * 1080.0 * 60.0 * 1.1;
+                    let preset = match (o.speed.as_str(), heavy) {
+                        ("quality" | "max", false) => "5",
+                        ("quality" | "max", true) | (_, false) => "6",
+                        _ => "7",
+                    };
+                    a.extend([os("-c:v"), os("libsvtav1"), os("-preset"), os(preset)]);
                     match video_kbps {
-                        Some(k) => a.extend([os("-b:v"), os(format!("{k}k"))]),
-                        None => a.extend([os("-crf"), os(format!("{:.0}", cq))]),
+                        // The rate control lands a few percent over: aim a little lower so the size is
+                        // met in one pass (a correction pass on the CPU doubles the time)
+                        Some(k) => a.extend([
+                            os("-svtav1-params"), os("tune=0:enable-overlays=1:scd=1:overshoot-pct=0"),
+                            os("-b:v"), os(format!("{}k", (k as u64 * 98 / 100).max(1))),
+                        ]),
+                        None => a.extend([os("-svtav1-params"), os("tune=0:enable-overlays=1:scd=1"), os("-crf"), os(format!("{:.0}", cq))]),
                     }
                 }
                 (Family::Hevc, Hw::Cpu) => {
@@ -684,6 +698,20 @@ pub fn run(src: &Path, opts: &VideoOpts, ctx: &Ctx) -> JobResult {
             }
         }
     }
+    // Few bits per pixel: GPU encoders fall apart (blocks, smearing) and miss the size by ±20 %.
+    // Measured with VMAF on real 1080p60 at 30 % of the source size: SVT-AV1 preset 6 scores 88 vs
+    // NVENC 81 (at 900 kbit/s 81 vs 63) and lands within a few percent of the target. From about
+    // 0.025 normalised bits per pixel the gain is gone (720p30 at 0.03: both VMAF 87), so the faster GPU stays there.
+    let mut cpu_first = false;
+    if let (Some(k), Some(f), Some(v)) = (video_kbps, fam, info.video.as_ref()) {
+        if opts.speed != "fast" && container != "gif" && matches!(f, Family::Av1 | Family::Hevc | Family::H264) && v.height > 0 {
+            let h = if opts.height > 0 && opts.height < v.height { opts.height } else { v.height };
+            let w = v.width as f64 * h as f64 / v.height as f64;
+            let fps = if opts.fps > 0.0 && (v.fps == 0.0 || opts.fps < v.fps) { opts.fps } else if v.fps > 0.0 { v.fps } else { 30.0 };
+            let nfps = 30.0 * (fps.max(1.0) / 30.0).powf(0.6);
+            cpu_first = (k as f64 * 1000.0 / (w * h as f64 * nfps)) < 0.025;
+        }
+    }
     let opts = &opts;
 
     let duration_for_progress = if dur > 0.0 { dur } else { 1.0 };
@@ -696,7 +724,7 @@ pub fn run(src: &Path, opts: &VideoOpts, ctx: &Ctx) -> JobResult {
 
     // Pick a video device: the least busy one that can encode this codec (several GPUs share the work).
     let lease = match fam {
-        Some(f) if opts.hw != "cpu" && container != "gif" => gpu::acquire(|d| supports(d, f), &crate::settings::get().gpu_device),
+        Some(f) if opts.hw != "cpu" && container != "gif" && !cpu_first => gpu::acquire(|d| supports(d, f), &crate::settings::get().gpu_device),
         _ => None,
     };
     let dev: Option<&EncDevice> = lease.as_ref().map(|l| l.device);
@@ -715,7 +743,11 @@ pub fn run(src: &Path, opts: &VideoOpts, ctx: &Ctx) -> JobResult {
     if dev.is_some_and(|d| d.kind == "mf") {
         levels.push(Level::MfEnc);
     }
-    levels.push(Level::Cpu);
+    if cpu_first {
+        levels.insert(0, Level::Cpu);
+    } else {
+        levels.push(Level::Cpu);
+    }
     let multi = gpu::job_devices().len() > 1;
     let mut attempt_kbps = video_kbps;
     let mut corrected = false;
@@ -762,6 +794,15 @@ pub fn run(src: &Path, opts: &VideoOpts, ctx: &Ctx) -> JobResult {
                 corrected = true;
                 let factor = tb as f64 / out_size as f64 * 0.97;
                 attempt_kbps = Some(((k as f64) * factor).max(40.0) as u32);
+                ctx.stage(0.0, "Уточнение размера");
+                continue;
+            }
+            // GPU encoders undershoot by up to 25 % at low bitrates, wasting the size the user allowed
+            if hw != Hw::Cpu && out_size < tb * 85 / 100 && corrections < 2 && out_size > 0 {
+                corrections += 1;
+                corrected = true;
+                let factor = (tb as f64 / out_size as f64 * 0.95).min(1.6);
+                attempt_kbps = Some(((k as f64) * factor) as u32);
                 ctx.stage(0.0, "Уточнение размера");
                 continue;
             }

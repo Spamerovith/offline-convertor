@@ -702,14 +702,16 @@ function updateEstimate() {
       h = lower.find((x) => bppAt(x) >= MIN_BPP) ?? Math.min(360, v.height);
     }
     // Absolute level of the result
-    const bpp = bppAt(h);
+    // At low bitrates the engine encodes on the CPU (SVT-AV1), which needs ~25 % fewer bits than the GPU
+    const gain = o.speed !== 'fast' && bppAt(h) / eff < 0.025 ? 1.25 : 1;
+    const bpp = bppAt(h) * gain;
     const abs = bpp >= 0.05 ? 4 : bpp >= 0.028 ? 3 : bpp >= 0.016 ? 2 : 1;
     // Relative to the source: the result can't look better than the source, and keeping most of
     // an already efficient source's bits means it looks almost the same.
     const srcAudio = (it.info.audio || []).reduce((s, a) => s + (a.bitrate_kbps || 128), 0);
     const srcK = v.bitrate_kbps || Math.max(1, (it.size * 8) / 1000 / it.info.duration - srcAudio);
     const srcEff = EFF[(v.codec || '').toLowerCase().replace('h265', 'hevc').replace('h.264', 'h264')] || (/hevc|265/.test(v.codec) ? 0.8 : /av1/.test(v.codec) ? 1 : /264/.test(v.codec) ? 0.6 : 0.45);
-    const ratio = (kbps * eff) / (srcK * srcEff);
+    const ratio = (kbps * eff * gain) / (srcK * srcEff);
     const rel = ratio >= 0.85 ? 4 : ratio >= 0.6 ? 3 : ratio >= 0.4 ? 2 : 1;
     const level = h < v.height ? abs : Math.max(abs, rel);
     const score = level + Math.min(bpp, 0.2);
