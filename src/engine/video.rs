@@ -642,7 +642,7 @@ pub fn run(src: &Path, opts: &VideoOpts, ctx: &Ctx) -> JobResult {
                 128
             };
             audio_budget = if ak > 0 { Some(ak) } else { None };
-            let vk = (total_kbps - (ak * n_audio) as f64).max(50.0);
+            let vk = (total_kbps - (ak * n_audio) as f64).max(1.0);
             video_kbps = Some(vk as u32);
             target_bytes = Some(tb);
         }

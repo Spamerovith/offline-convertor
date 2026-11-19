@@ -101,7 +101,7 @@ const TOOLS = {
       { type: 'reco' },
       SIZE_MODE('видео'),
       levelField(VIDEO_LEVEL_HINTS, (o) => o.size_mode === 'quality'),
-      { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '1 - 65536', unit: 'MB', min: 1, max: 65536, step: 'any', show: (o) => o.size_mode === 'size',
+      { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '0.01 - 65536', unit: 'MB', min: 0.01, max: 65536, step: 'any', show: (o) => o.size_mode === 'size',
         info: 'Размер каждого файла вместе со звуком. Если он слишком мал для разрешения видео, разрешение будет снижено' },
       { type: 'unit', key: 'bitrate_kbps', label: 'Изменить битрейт видео:', placeholder: '1 - 100000', unit: 'kbps', min: 1, max: 100000, step: 1, show: (o) => o.size_mode === 'bitrate' },
       { type: 'estimate', show: (o) => o.size_mode !== 'quality' },
@@ -133,7 +133,7 @@ const TOOLS = {
     fields: [
       SIZE_MODE('аудио'),
       levelField(AUDIO_LEVEL_HINTS, (o) => o.size_mode === 'quality'),
-      { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '1 - 65536', unit: 'MB', min: 1, max: 65536, step: 'any', show: (o) => o.size_mode === 'size' },
+      { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '0.01 - 65536', unit: 'MB', min: 0.01, max: 65536, step: 'any', show: (o) => o.size_mode === 'size' },
       { type: 'unit', key: 'bitrate_kbps', label: 'Изменить битрейт аудио:', placeholder: '8 - 512', unit: 'kbps', min: 8, max: 512, step: 1, show: (o) => o.size_mode === 'bitrate' },
       { type: 'sep' },
       { type: 'select', key: 'format', label: 'Формат результата', options: [['same', 'Как у исходника'], ['opus', 'OPUS'], ['mp3', 'MP3'], ['m4a', 'AAC (M4A)']] },
