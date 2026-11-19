@@ -14,6 +14,17 @@ mozjpeg (JPEG encoder)
   License: IJG, BSD-3-Clause, zlib
   Source: https://github.com/mozilla/mozjpeg
 
+ssimulacra2 (perceptual image quality metric, used to pick the JPEG quality)
+  License: BSD-2-Clause
+  Source: https://github.com/rust-av/ssimulacra2
+
+ureq, rustls (update check over HTTPS)
+  Licenses: MIT and/or Apache-2.0, ISC; webpki-roots: CDLA-Permissive-2.0
+  Source: https://github.com/algesten/ureq
+
+Enhancement filters (atadenoise, hqdn3d, cas) are part of FFmpeg; cas is an implementation of
+AMD FidelityFX Contrast Adaptive Sharpening
+
 oxipng, image, lopdf, pdf-extract, docx-rs, Tauri and other Rust crates
   Licenses: MIT and/or Apache-2.0 (see Cargo.lock for the full list)
 

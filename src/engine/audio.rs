@@ -203,7 +203,7 @@ pub fn run(src: &Path, o: &AudioOpts, ctx: &Ctx) -> JobResult {
     let mut note = None;
     if compress && super::file_size(&dst) >= src_size && paths::ext_of(&dst) == paths::ext_of(src) {
         let _ = std::fs::copy(src, &dst);
-        note = Some("Аудио уже сжато оптимально - сохранена копия".into());
+        note = Some("Сильнее сжать нельзя, сохранена копия".into());
     }
     Ok(output(&dst, note))
 }

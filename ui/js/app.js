@@ -41,6 +41,10 @@ function plural(n, one, few, many) {
   return many;
 }
 
+// Native dialogs are outside the page, so their texts are translated here
+const L = (s) => (window.I18N ? I18N.t(s) : s);
+const LANGS = window.I18N ? I18N.LANGS : [['ru', 'Русский'], ['en', 'English']];
+
 // ── Static data ──────────────────────────────────────────────────────
 const KIND_ICON = { video: 'video', audio: 'music', image: 'image', pdf: 'pdf', other: 'file' };
 const EXT = {
@@ -50,7 +54,7 @@ const EXT = {
   pdf: ['pdf'],
 };
 
-const QUALITY_HINT = 'Выберите качество итогового файла. Чем выше качество, тем больше размер файла. Понижение качества уменьшит размер файла';
+const QUALITY_HINT = 'Чем выше качество, тем больше файл';
 // Compression level → the engine's 0..100 quality (calibrated by VMAF/SSIM: 85 = visually lossless)
 const LEVEL_Q = { high: 93, balanced: 85, strong: 72 };
 const levelOf = (q) => (q >= 90 ? 'high' : q >= 78 ? 'balanced' : 'strong');
@@ -59,40 +63,34 @@ const levelField = (hints, show) => ({
   options: [['high', 'Слабая'], ['balanced', 'Оптимальная'], ['strong', 'Сильная']], hints,
 });
 const VIDEO_LEVEL_HINTS = {
-  high: 'Максимальное качество, файл меньше в 2-4 раза',
-  balanced: 'На глаз как исходник, файл меньше в 3-10 раз',
-  strong: 'Самый маленький файл, на мелких деталях возможна потеря чёткости',
+  high: 'Наивысшее качество',
+  balanced: 'Баланс качества и размера',
+  strong: 'Наименьший размер',
 };
 const AUDIO_LEVEL_HINTS = {
-  high: 'Звук не отличить от исходника',
-  balanced: 'Без слышимых потерь для музыки и речи',
-  strong: 'Самый маленький файл, подходит для речи и подкастов',
+  high: 'Наивысшее качество',
+  balanced: 'Баланс качества и размера',
+  strong: 'Наименьший размер, подходит для речи',
 };
 const SIZE_MODE = (what) => ({
-  type: 'seg', key: 'size_mode', label: 'Как сжимать',
-  options: [['quality', 'По качеству'], ['size', 'До размера'], ['bitrate', `По битрейту`]],
-  hints: {
-    quality: `Размер подберётся сам - ${what} будет сжато настолько, насколько можно без заметных потерь`,
-    size: 'Точный размер итогового файла',
-    bitrate: 'Для тех, кто знает нужный битрейт',
-  },
+  type: 'seg', key: 'size_mode', label: 'Метод сжатия',
+  options: [['quality', 'По качеству'], ['size', 'По размеру'], ['bitrate', `По битрейту`]],
 });
 const RES_OPTIONS = [[0, 'Как у исходника'], [2160, '4K · 2160p'], [1440, '1440p'], [1080, '1080p'], [720, '720p'], [480, '480p'], [360, '360p']];
 const FPS_OPTIONS = [[0, 'Как у исходника'], [60, '60 кадров/с'], [50, '50 кадров/с'], [30, '30 кадров/с'], [25, '25 кадров/с'], [24, '24 кадра/с']];
 
+// Tools where «Улучшение» (gentle denoise + sharpening) applies: photos and video
+const ENHANCE_TOOLS = ['home', 'compress-video', 'compress-image', 'convert-video', 'convert-image'];
+
 const TOOLS = {
   home: {
     title: 'Пакетное сжатие', nav: 'Пакетное сжатие', icon: 'layers', tool: 'auto',
-    accept: ['video', 'audio', 'image', 'pdf'], formats: 'Видео, фото, аудио и PDF - любое количество',
+    accept: ['video', 'audio', 'image', 'pdf'], formats: 'Видео, фото, аудио и PDF',
     defaults: { level: 'balanced' },
     fields: [
       { type: 'kinds' },
-      levelField({
-        high: 'Максимальное качество, файлы уменьшаются меньше',
-        balanced: 'Без заметных потерь - лучший баланс размера и качества',
-        strong: 'Самые маленькие файлы, на мелких деталях возможны потери',
-      }),
-      { type: 'note', text: 'Формат, разрешение и прочее для каждого вида файлов берутся из разделов «Сжатие»' },
+      levelField(VIDEO_LEVEL_HINTS),
+      { type: 'note', text: 'Остальные параметры берутся из разделов «Сжатие»' },
     ],
   },
   'compress-video': {
@@ -104,16 +102,16 @@ const TOOLS = {
       SIZE_MODE('видео'),
       levelField(VIDEO_LEVEL_HINTS, (o) => o.size_mode === 'quality'),
       { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '1 - 65536', unit: 'MB', min: 1, max: 65536, step: 'any', show: (o) => o.size_mode === 'size',
-        info: 'Размер каждого итогового файла вместе со звуком. Если размер слишком мал для разрешения видео, разрешение уменьшится само, чтобы не было кубиков' },
+        info: 'Размер каждого файла вместе со звуком. Если он слишком мал для разрешения видео, разрешение будет снижено' },
       { type: 'unit', key: 'bitrate_kbps', label: 'Изменить битрейт видео:', placeholder: '1 - 100000', unit: 'kbps', min: 1, max: 100000, step: 1, show: (o) => o.size_mode === 'bitrate' },
       { type: 'estimate', show: (o) => o.size_mode !== 'quality' },
       { type: 'sep' },
       { type: 'select', key: 'height', label: 'Разрешение', options: RES_OPTIONS, num: true },
       { type: 'select', key: 'fps', label: 'Частота кадров', options: FPS_OPTIONS, num: true },
       { type: 'select', key: 'format', label: 'Контейнер', options: [['same', 'Как у исходника'], ['mp4', 'MP4'], ['mkv', 'MKV'], ['webm', 'WEBM'], ['mov', 'MOV']] },
-      { type: 'select', key: 'audio', label: 'Звук', options: [['auto', 'Авто (без перекодирования, если можно)'], ['aac', 'AAC'], ['opus', 'Opus'], ['none', 'Без звука']] },
-      { type: 'select', key: 'speed', label: 'Режим кодирования', options: [['balanced', 'Быстро и качественно (рекомендуется)'], ['quality', 'Максимальное сжатие - в 2-3 раза медленнее'], ['fast', 'Максимальная скорость']] },
-      { type: 'select', key: 'hw', label: 'Ускорение', options: [['auto', 'Видеокарта (с откатом на процессор)'], ['cpu', 'Только процессор']] },
+      { type: 'select', key: 'audio', label: 'Звук', options: [['auto', 'Авто'], ['aac', 'AAC'], ['opus', 'Opus'], ['none', 'Без звука']] },
+      { type: 'select', key: 'speed', label: 'Скорость кодирования', options: [['balanced', 'Стандартная'], ['quality', 'Медленная, лучшее сжатие'], ['fast', 'Быстрая']] },
+      { type: 'select', key: 'hw', label: 'Ускорение', options: [['auto', 'Видеокарта'], ['cpu', 'Только процессор']] },
     ],
   },
   'compress-image': {
@@ -123,7 +121,7 @@ const TOOLS = {
     fields: [
       { type: 'slider', key: 'quality', label: 'Качество', hint: QUALITY_HINT },
       { type: 'sep' },
-      { type: 'select', key: 'format', label: 'Формат результата', options: [['same', 'Как у исходника'], ['jpg', 'JPG'], ['webp', 'WEBP - меньше JPG'], ['avif', 'AVIF - самый компактный'], ['png', 'PNG']] },
+      { type: 'select', key: 'format', label: 'Формат результата', options: [['same', 'Как у исходника'], ['jpg', 'JPG'], ['webp', 'WEBP'], ['avif', 'AVIF'], ['png', 'PNG']] },
       { type: 'select', key: 'max_side', label: 'Максимальная сторона', options: [[0, 'Как у исходника'], [7680, '7680 px'], [3840, '3840 px'], [2560, '2560 px'], [1920, '1920 px'], [1280, '1280 px']], num: true },
       { type: 'switch', key: 'keep_metadata', label: 'Сохранять EXIF и цветовой профиль' },
     ],
@@ -138,15 +136,15 @@ const TOOLS = {
       { type: 'unit', key: 'target_mb', label: 'Установить размер файла:', placeholder: '1 - 65536', unit: 'MB', min: 1, max: 65536, step: 'any', show: (o) => o.size_mode === 'size' },
       { type: 'unit', key: 'bitrate_kbps', label: 'Изменить битрейт аудио:', placeholder: '8 - 512', unit: 'kbps', min: 8, max: 512, step: 1, show: (o) => o.size_mode === 'bitrate' },
       { type: 'sep' },
-      { type: 'select', key: 'format', label: 'Формат результата', options: [['same', 'Как у исходника'], ['opus', 'OPUS - лучшее сжатие'], ['mp3', 'MP3'], ['m4a', 'AAC (M4A)']] },
+      { type: 'select', key: 'format', label: 'Формат результата', options: [['same', 'Как у исходника'], ['opus', 'OPUS'], ['mp3', 'MP3'], ['m4a', 'AAC (M4A)']] },
     ],
   },
   'compress-pdf': {
     group: 'compress', title: 'Сжатие PDF', nav: 'PDF', icon: 'pdf', tool: 'pdf', accept: ['pdf'], formats: 'PDF',
     defaults: { quality: 85, max_side: 2339, grayscale: false },
     fields: [
-      { type: 'slider', key: 'quality', label: 'Качество изображений', hint: 'Текст и векторная графика не изменяются - пережимаются только фотографии внутри PDF' },
-      { type: 'select', key: 'max_side', label: 'Разрешение изображений', options: [[0, 'Без изменений'], [3508, '300 dpi - печать'], [2339, '200 dpi - оптимально'], [1754, '150 dpi - экран'], [1123, '96 dpi - минимум']], num: true },
+      { type: 'slider', key: 'quality', label: 'Качество изображений', hint: 'Текст и векторная графика не изменяются' },
+      { type: 'select', key: 'max_side', label: 'Разрешение изображений', options: [[0, 'Без изменений'], [3508, '300 dpi'], [2339, '200 dpi'], [1754, '150 dpi'], [1123, '96 dpi']], num: true },
       { type: 'switch', key: 'grayscale', label: 'Перевести изображения в оттенки серого' },
     ],
   },
@@ -157,7 +155,7 @@ const TOOLS = {
     fields: [
       { type: 'chips', key: 'format', label: 'Конвертировать в', options: ['mp4', 'mkv', 'webm', 'mov', 'avi', 'flv', 'wmv', 'mpeg', '3gp', 'ts', 'm4v', 'ogv', 'gif'].map((f) => [f, f.toUpperCase()]) },
       { type: 'select', key: 'codec', label: 'Видеокодек', show: (o) => ['mp4', 'mkv', 'webm', 'mov', 'm4v', 'ts'].includes(o.format),
-        options: [['auto', 'Авто'], ['h264', 'H.264 - максимальная совместимость'], ['hevc', 'HEVC (H.265)'], ['av1', 'AV1'], ['vp9', 'VP9'], ['copy', 'Без перекодирования (мгновенно)']] },
+        options: [['auto', 'Авто'], ['h264', 'H.264'], ['hevc', 'HEVC (H.265)'], ['av1', 'AV1'], ['vp9', 'VP9'], ['copy', 'Без перекодирования']] },
       levelField(VIDEO_LEVEL_HINTS, (o) => o.format !== 'gif' && o.codec !== 'copy'),
       { type: 'select', key: 'gif_fps', label: 'Кадров в секунду (GIF)', options: [[10, '10'], [15, '15'], [20, '20'], [25, '25'], [30, '30']], num: true, show: (o) => o.format === 'gif' },
       { type: 'select', key: 'gif_width', label: 'Ширина GIF', options: [[320, '320 px'], [480, '480 px'], [640, '640 px'], [800, '800 px'], [0, 'Как у исходника']], num: true, show: (o) => o.format === 'gif' },
@@ -175,7 +173,7 @@ const TOOLS = {
     fields: [
       { type: 'chips', key: 'format', label: 'Конвертировать в', options: ['mp3', 'aac', 'm4a', 'opus', 'ogg', 'flac', 'wav', 'aiff', 'alac', 'wma', 'ac3'].map((f) => [f, f.toUpperCase()]) },
       { type: 'select', key: 'bitrate_kbps', label: 'Битрейт', num: true, show: (o) => !['flac', 'wav', 'aiff', 'alac'].includes(o.format),
-        options: [[0, 'Авто (высокое качество)'], [320, '320 кбит/с'], [256, '256 кбит/с'], [192, '192 кбит/с'], [160, '160 кбит/с'], [128, '128 кбит/с'], [96, '96 кбит/с'], [64, '64 кбит/с']] },
+        options: [[0, 'Авто'], [320, '320 кбит/с'], [256, '256 кбит/с'], [192, '192 кбит/с'], [160, '160 кбит/с'], [128, '128 кбит/с'], [96, '96 кбит/с'], [64, '64 кбит/с']] },
       { type: 'select', key: 'bit_depth', label: 'Разрядность', num: true, show: (o) => ['flac', 'wav', 'aiff'].includes(o.format), options: [[16, '16 бит'], [24, '24 бит']] },
       { type: 'select', key: 'sample_rate', label: 'Частота дискретизации', num: true, options: [[0, 'Как у исходника'], [48000, '48 000 Гц'], [44100, '44 100 Гц'], [32000, '32 000 Гц'], [22050, '22 050 Гц']] },
       { type: 'select', key: 'channels', label: 'Каналы', num: true, options: [[0, 'Как у исходника'], [2, 'Стерео'], [1, 'Моно']] },
@@ -213,7 +211,7 @@ const TOOLS = {
     fields: [
       { type: 'lang' },
       { type: 'seg', key: 'output', label: 'Сохранить как', options: [['docx', 'Word (DOCX)'], ['txt', 'Текст (TXT)']] },
-      { type: 'switch', key: 'preprocess', label: 'Улучшить скан (контраст, резкость, увеличение)' },
+      { type: 'switch', key: 'preprocess', label: 'Улучшить скан' },
       { type: 'switch', key: 'include_images', label: 'Вставить изображение страницы в Word', show: (o) => o.output === 'docx' },
     ],
   },
@@ -221,7 +219,7 @@ const TOOLS = {
     group: 'ocr', title: 'PDF в Word', nav: 'PDF в Word', icon: 'word', tool: 'ocr', accept: ['pdf'], formats: 'PDF → DOCX',
     defaults: { lang: 'auto', output: 'docx', preprocess: false, include_images: false, pdf_mode: 'auto' },
     fields: [
-      { type: 'select', key: 'pdf_mode', label: 'Способ', options: [['auto', 'Авто - текстовый слой, иначе распознавание'], ['ocr', 'Распознавать каждую страницу'], ['text', 'Только текстовый слой']] },
+      { type: 'select', key: 'pdf_mode', label: 'Способ', options: [['auto', 'Авто'], ['ocr', 'Распознавать каждую страницу'], ['text', 'Только текстовый слой']] },
       { type: 'lang' },
       { type: 'switch', key: 'include_images', label: 'Вставить изображение страницы' },
     ],
@@ -329,7 +327,7 @@ function renderView() {
             <div class="drop-icon">${icon('upload')}</div>
             <div class="drop-text">
               <h2>Перетащите файлы или папки сюда</h2>
-              <p>Без ограничений по размеру, длине и количеству. Исходные файлы не изменяются</p>
+              <p>Исходные файлы не изменяются</p>
             </div>
             <div class="drop-hint">Отпустите, чтобы добавить</div>
             <div class="drop-actions">
@@ -343,6 +341,10 @@ function renderView() {
             <span class="spacer"></span>
             <button class="btn btn-sm btn-accent ui-press ui-focus" type="button" id="saveAll" hidden>${icon('download', 16)}<span id="saveAllLabel">Загрузить всё</span></button>
             <button class="btn btn-sm btn-quiet ui-press ui-press--on-dark ui-focus" type="button" id="clearDone">Убрать сохранённые</button>
+            ${ENHANCE_TOOLS.includes(id) ? `<span class="enh" title="Мягкое шумоподавление и резкость">
+              <button type="button" class="ui-check ui-focus" role="checkbox" id="enhance" aria-checked="${!!state.tools[id].opts.enhance}" aria-labelledby="enhLbl"><svg viewBox="0 0 24 24" aria-hidden="true"><path pathLength="20" d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+              <label id="enhLbl" for="enhance">Улучшение</label>
+            </span>` : ''}
             <button class="btn btn-sm btn-quiet ui-press ui-press--on-dark ui-focus" type="button" id="clearAll">${icon('trash', 16)}Очистить</button>
             <button class="btn btn-sm btn-danger ui-press ui-press--on-dark ui-focus" type="button" id="cancelAll" hidden>${icon('stop', 16)}Отменить всё</button>
           </div>
@@ -373,6 +375,17 @@ function renderView() {
   $('#clearAll').onclick = () => clearItems((i) => i.state !== 'running' && i.state !== 'queued', true);
   $('#cancelAll').onclick = cancelAllInTool;
   $('#saveAll').onclick = saveAll;
+  const enh = $('#enhance');
+  if (enh) {
+    const toggle = () => {
+      const v = enh.getAttribute('aria-checked') !== 'true';
+      enh.setAttribute('aria-checked', String(v));
+      state.tools[state.current].opts.enhance = v;
+      saveSettingsSoon();
+    };
+    enh.onclick = toggle;
+    $('#enhLbl').onclick = (e) => { e.preventDefault(); toggle(); };
+  }
   renderFields();
   renderOutDir();
   renderQueue();
@@ -477,7 +490,7 @@ function fieldHtml(f, o, toolId) {
           <input class="input ui-field" type="text" placeholder="Начало 0:00:00" value="${o.trim_start != null ? fmtTime(o.trim_start) : ''}" data-time="trim_start" aria-label="Начало, чч:мм:сс">
           <input class="input ui-field" type="text" placeholder="Конец 0:00:00" value="${o.trim_end != null ? fmtTime(o.trim_end) : ''}" data-time="trim_end" aria-label="Конец, чч:мм:сс">
         </div>
-        <p class="hint">Пусто - весь файл</p>
+        
       </div>`;
     }
     case 'lang': {
@@ -487,7 +500,7 @@ function fieldHtml(f, o, toolId) {
         <label for="f-lang">Язык текста</label>
         <select class="select ui-field" id="f-lang" data-key="lang">
           <option value="auto" ${v === 'auto' ? 'selected' : ''}>Авто (русский + английский)</option>
-          ${langs.map((l) => `<option value="${esc(l.tag)}" ${l.tag === v ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}
+          ${langs.map((l) => `<option translate="no" value="${esc(l.tag)}" ${l.tag === v ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}
         </select>
         ${langs.length ? '' : '<p class="hint">Языки распознавания Windows не найдены: добавьте язык в Параметры → Время и язык → Язык</p>'}
       </div>`;
@@ -640,18 +653,21 @@ function updateEstimate() {
   const useSize = o.size_mode === 'size' && o.target_mb > 0;
   const useRate = o.size_mode === 'bitrate' && o.bitrate_kbps > 0;
   if (!useSize && !useRate) {
-    el.innerHTML = `<span>Пусто - ${o.size_mode === 'size' ? 'размер' : 'битрейт'} подберётся автоматически</span>`;
+    el.innerHTML = '';
     return;
   }
   if (!items.length) {
-    el.innerHTML = '<span>Добавьте видео, чтобы увидеть ожидаемое качество</span>';
+    el.innerHTML = '';
     return;
   }
-  // Same model as the engine: below MIN_BPP the resolution is lowered instead of producing blocks.
+  // Same model as the engine. Bits per pixel are normalised to 30 fps with an exponent of 0.6:
+  // doubling the frame rate costs far less than double the bits (neighbouring frames are similar).
   const caps = state.sys?.caps;
   const codec = o.codec === 'auto' ? caps?.recommended_codec || 'av1' : o.codec;
-  const eff = { av1: 1, hevc: 0.8, h264: 0.6 }[codec] || 0.8;
+  const EFF = { av1: 1, hevc: 0.8, vp9: 0.8, h264: 0.6 };
+  const eff = EFF[codec] || 0.8;
   const MIN_BPP = 0.012;
+  const norm = (fps) => 30 * Math.pow(Math.max(fps, 1) / 30, 0.6);
   let worst = Infinity, worstItem = null, worstH = 0, bigger = 0;
   for (const it of items) {
     const v = it.info.video;
@@ -664,25 +680,37 @@ function updateEstimate() {
       const ak = it.info.audio?.length ? (total < 400 ? 48 : total < 1200 ? 96 : 128) * it.info.audio.length : 0;
       kbps = Math.max(50, total - ak);
     } else kbps = o.bitrate_kbps;
-    const bppAt = (h) => (kbps * 1000) / (v.width * (h / v.height) * h * fps) * eff;
+    const bppAt = (h) => (kbps * 1000 * eff) / (v.width * (h / v.height) * h * norm(fps));
     let h = o.height > 0 && o.height < v.height ? o.height : v.height;
     if (!(o.height > 0) && bppAt(h) < MIN_BPP) {
       const lower = [1440, 1080, 720, 540, 480, 360].filter((x) => x < v.height);
       h = lower.find((x) => bppAt(x) >= MIN_BPP) ?? Math.min(360, v.height);
     }
+    // Absolute level of the result
     const bpp = bppAt(h);
-    if (Number.isFinite(bpp) && bpp < worst) { worst = bpp; worstItem = it; worstH = h < v.height ? h : 0; }
+    const abs = bpp >= 0.05 ? 4 : bpp >= 0.028 ? 3 : bpp >= 0.016 ? 2 : 1;
+    // Relative to the source: the result can't look better than the source, and keeping most of
+    // an already efficient source's bits means it looks almost the same.
+    const srcAudio = (it.info.audio || []).reduce((s, a) => s + (a.bitrate_kbps || 128), 0);
+    const srcK = v.bitrate_kbps || Math.max(1, (it.size * 8) / 1000 / it.info.duration - srcAudio);
+    const srcEff = EFF[(v.codec || '').toLowerCase().replace('h265', 'hevc').replace('h.264', 'h264')] || (/hevc|265/.test(v.codec) ? 0.8 : /av1/.test(v.codec) ? 1 : /264/.test(v.codec) ? 0.6 : 0.45);
+    const ratio = (kbps * eff) / (srcK * srcEff);
+    const rel = ratio >= 0.85 ? 4 : ratio >= 0.6 ? 3 : ratio >= 0.4 ? 2 : 1;
+    const level = h < v.height ? abs : Math.max(abs, rel);
+    const score = level + Math.min(bpp, 0.2);
+    if (Number.isFinite(score) && score < worst) { worst = score; worstItem = { it, level, near: ratio >= 0.85 && h === v.height }; worstH = h < v.height ? h : 0; }
   }
   if (!worstItem) {
-    el.innerHTML = `<span>${bigger > 1 ? 'Файлы уже меньше' : 'Файл уже меньше'} заданного размера - будет сжат по качеству</span>`;
+    el.innerHTML = `<span>${bigger > 1 ? 'Файлы уже меньше' : 'Файл уже меньше'} заданного размера</span>`;
     return;
   }
-  const levels = [[0.07, 'Отличное', 4], [0.04, 'Хорошее', 3], [0.022, 'Среднее', 2], [-Infinity, 'Заметные потери', 1]];
-  const [, name, n] = levels.find(([t]) => worst >= t);
+  const names = { 4: worstItem.near ? 'Как у исходника' : 'Отличное', 3: 'Хорошее', 2: 'Среднее', 1: 'Заметные потери' };
+  const n = worstItem.level;
+  const name = names[n];
   const bars = [1, 2, 3, 4].map((k) => `<i class="${k <= n ? 'on' : ''}"></i>`).join('');
   const notes = [];
-  if (worstH && !(o.height > 0)) notes.push(`Разрешение уменьшится до ${worstH}p, чтобы не было кубиков`);
-  if (items.length > 1) notes.push(`Хуже всего у «${esc(worstItem.name)}»`);
+  if (worstH && !(o.height > 0)) notes.push(`Разрешение будет снижено до ${worstH}p`);
+  if (items.length > 1) notes.push(`Хуже всего у «${esc(worstItem.it.name)}»`);
   el.innerHTML = `<span>Ожидаемое качество:</span><span class="lvl"><span class="bars" aria-hidden="true">${bars}</span>${name}</span>${notes.map((t) => `<span class="who">${t}</span>`).join('')}`;
 }
 
@@ -732,7 +760,7 @@ function renderOutDir() {
 }
 async function pickOutDir() {
   try {
-    const dir = await T.dialog.open({ directory: true, multiple: false, title: 'Папка для готовых файлов' });
+    const dir = await T.dialog.open({ directory: true, multiple: false, title: L('Папка для готовых файлов') });
     if (!dir) return false;
     state.settings.out_dir = Array.isArray(dir) ? dir[0] : dir;
     state.settings.out_mode = 'folder';
@@ -762,13 +790,13 @@ async function saveOne(it, btn) {
   let dest;
   try {
     dest = await T.dialog.save({
-      title: 'Загрузить на диск',
+      title: L('Загрузить на диск'),
       defaultPath: `${dirName(it.path)}\\${name}`,
       filters: ext ? [{ name: ext.toUpperCase(), extensions: [ext] }] : [],
     });
   } catch (e) { toast(String(e), 'error'); return; }
   if (!dest) return;
-  if (samePath(dest, it.path)) { toast('Исходный файл не заменяется - выберите другое имя', 'error'); return; }
+  if (samePath(dest, it.path)) { toast('Нельзя заменить исходный файл, выберите другое имя', 'error'); return; }
   if (btn) { btn.disabled = true; btn.querySelector('span').textContent = 'Сохранение…'; }
   try {
     it.saved = await invoke('save_result', { path: it.result.path, dest });
@@ -783,7 +811,7 @@ async function saveAll() {
   const items = [...state.tools[state.current].items.values()].filter(isUnsaved);
   if (!items.length) return;
   let folder;
-  try { folder = await T.dialog.open({ directory: true, multiple: false, title: 'Куда загрузить готовые файлы' }); } catch (e) { toast(String(e), 'error'); return; }
+  try { folder = await T.dialog.open({ directory: true, multiple: false, title: L('Куда загрузить готовые файлы') }); } catch (e) { toast(String(e), 'error'); return; }
   if (!folder) return;
   folder = Array.isArray(folder) ? folder[0] : folder;
   const btn = $('#saveAll');
@@ -812,8 +840,8 @@ async function pickFiles(folder) {
   const def = TOOLS[state.current];
   try {
     const sel = await T.dialog.open(folder
-      ? { directory: true, multiple: true, title: 'Выберите папки' }
-      : { multiple: true, title: 'Выберите файлы', filters: [{ name: def.title, extensions: acceptExts(def) }, { name: 'Все файлы', extensions: ['*'] }] });
+      ? { directory: true, multiple: true, title: L('Выберите папки') }
+      : { multiple: true, title: L('Выберите файлы'), filters: [{ name: L(def.title), extensions: acceptExts(def) }, { name: L('Все файлы'), extensions: ['*'] }] });
     if (!sel) return;
     addPaths(Array.isArray(sel) ? sel : [sel]);
   } catch (e) { toast(String(e), 'error'); }
@@ -907,11 +935,11 @@ function rowInner(it) {
       <button class="icon-btn ui-press ui-press--on-dark ui-focus" type="button" data-act="remove" aria-label="Убрать из списка">${icon('x', 16)}</button>`;
   }
   let note = it.state === 'done' && it.result?.note ? `<span class="sep">·</span><span class="note" title="${esc(it.result.note)}">${esc(it.result.note)}</span>` : '';
-  if (it.state === 'done' && it.saved) note += `<span class="sep">·</span><span class="note saved" title="${esc(it.saved)}">${icon('check', 16)}${esc(baseName(it.saved))}</span>`;
+  if (it.state === 'done' && it.saved) note += `<span class="sep">·</span><span class="note saved" translate="no" title="${esc(it.saved)}">${icon('check', 16)}${esc(baseName(it.saved))}</span>`;
   const preview = it.state === 'done' && it.showText && it.result?.text != null
-    ? `<div class="text-preview">${esc(it.result.text || 'Текст не найден')}</div>` : '';
+    ? (it.result.text ? `<div class="text-preview" translate="no">${esc(it.result.text)}</div>` : '<div class="text-preview">Текст не найден</div>') : '';
   return `<div class="kind">${icon(it.state === 'done' ? 'check' : it.state === 'error' ? 'alert' : KIND_ICON[it.kind] || 'file', 20)}</div>
-    <div class="info"><span class="name" title="${esc(it.path)}">${esc(it.name)}</span><span class="meta" data-meta>${metaHtml(it)}${note}</span></div>
+    <div class="info"><span class="name" translate="no" title="${esc(it.path)}">${esc(it.name)}</span><span class="meta" data-meta>${metaHtml(it)}${note}</span></div>
     <div class="actions">${right}</div>
     ${preview}
     <div class="progress" aria-hidden="true"><i style="width:${it.state === 'running' ? Math.round(it.progress * 100) : 0}%"></i></div>`;
@@ -1006,7 +1034,7 @@ function updateSummary() {
   const startBtn = $('#start');
   if (active) el.textContent = `В работе: ${active} из ${items.length}`;
   else if (ready) el.textContent = `К обработке: ${ready} ${plural(ready, 'файл', 'файла', 'файлов')}`;
-  else if (again) el.textContent = 'Всё готово. Поменяйте настройки и обработайте заново';
+  else if (again) el.textContent = 'Готово';
   else el.textContent = 'Добавьте файлы';
   const lbl = $('#startLabel');
   if (lbl) lbl.textContent = again ? 'Обработать заново' : 'Начать';
@@ -1047,7 +1075,7 @@ async function clearItems(pred, confirmUnsaved = false) {
   const t = state.tools[state.current];
   const unsaved = [...t.items.values()].filter((v) => pred(v) && isUnsaved(v));
   if (confirmUnsaved && unsaved.length) {
-    const ok = await T.dialog.ask(`${unsaved.length} ${plural(unsaved.length, 'готовый файл не сохранён', 'готовых файла не сохранены', 'готовых файлов не сохранены')} на диск и будут удалены`, { title: 'Очистить список', kind: 'warning', okLabel: 'Удалить', cancelLabel: 'Отмена' });
+    const ok = await T.dialog.ask(L(`${unsaved.length} ${plural(unsaved.length, 'готовый файл не сохранён', 'готовых файла не сохранены', 'готовых файлов не сохранены')} на диск и будут удалены`), { title: L('Очистить список'), kind: 'warning', okLabel: L('Удалить'), cancelLabel: L('Отмена') });
     if (!ok) return;
   }
   for (const v of unsaved) invoke('discard_result', { path: v.result.path });
@@ -1090,9 +1118,9 @@ function jobOptions(id) {
   const lv = o.level || 'balanced';
   const pick = (tid, extra = {}) => engineOptions({ ...state.tools[tid].opts, mode: 'compress', ...extra }, lv);
   return {
-    video: pick('compress-video', { size_mode: 'quality' }),
+    video: pick('compress-video', { size_mode: 'quality', enhance: !!o.enhance }),
     audio: pick('compress-audio', { size_mode: 'quality' }),
-    image: pick('compress-image'),
+    image: pick('compress-image', { enhance: !!o.enhance }),
     pdf: pick('compress-pdf'),
   };
 }
@@ -1210,6 +1238,12 @@ function renderSettings() {
   ];
   const gpuInfo = (d) => (caps?.gpus || []).find((g) => d.name.includes(g.name) || g.name.includes(d.name.replace(' (Media Foundation)', '')));
   $('#settingsBody').innerHTML = `
+    <section class="fields">
+      <h3 class="section-title" style="margin:0">Язык</h3>
+      <div class="seg" role="group" aria-label="Язык" translate="no">
+        ${LANGS.map(([id, name]) => `<button type="button" class="ui-focus" data-lang="${id}" aria-pressed="${(s.lang || 'ru') === id}">${name}</button>`).join('')}
+      </div>
+    </section>
     <section>
       <h3 class="section-title">Тема</h3>
       <div class="themes" role="radiogroup" aria-label="Тема">
@@ -1228,7 +1262,7 @@ function renderSettings() {
         <div class="seg" role="group" aria-label="Видео одновременно">
           ${[1, 2, 3, 4].map((n) => `<button type="button" class="ui-focus" data-par="${n}" aria-pressed="${s.video_parallel === n}">${n}</button>`).join('')}
         </div>
-        <p class="hint">Видеокарты GeForce кодируют до 8 потоков одновременно; 2 - оптимально для скорости каждого файла</p>
+        <p class="hint">Рекомендуется 2</p>
       </div>
       <div class="field">
         <label for="cpuPar">Потоки процессора для фото, аудио и PDF</label>
@@ -1251,7 +1285,6 @@ function renderSettings() {
           <option value="auto" ${!s.gpu_device || s.gpu_device === 'auto' ? 'selected' : ''}>${jobDevs.length > 1 ? `Всех видеокартах сразу (${jobDevs.length})` : 'Видеокарте (автоматически)'}</option>
           ${jobDevs.map((d) => `<option value="${esc(d.id)}" ${s.gpu_device === d.id ? 'selected' : ''}>${esc(d.name)} · ${kindName[d.kind] || d.kind}</option>`).join('')}
         </select>
-        ${jobDevs.length > 1 ? '<p class="hint">Видео из очереди распределяются по видеокартам: каждая берёт следующий файл, когда освобождается</p>' : ''}
       </div>
       ${devs.map((d) => {
         const g = gpuInfo(d);
@@ -1261,18 +1294,20 @@ function renderSettings() {
           <div class="tags">${devTags(d).map(([n, ok]) => `<span class="tag ${ok ? 'on' : ''}">${n}</span>`).join('')}</div>
         </div>`;
       }).join('')}
-      <p class="hint">Рекомендуемый кодек: ${CODEC_NAME[caps.recommended_codec] || ''}. Поддерживаются NVIDIA (NVENC), AMD (AMF), Intel (Quick Sync) и любые видеокарты с аппаратным кодировщиком Windows (Media Foundation)</p>`}
+      <p class="hint">Рекомендуемый кодек: ${CODEC_NAME[caps.recommended_codec] || ''}</p>`}
     </section>
     <section>
       <h3 class="section-title">О программе</h3>
       <dl class="kv">
         <dt>Версия</dt><dd class="num">${esc(sys?.version || '')}</dd>
-        <dt>Движок</dt><dd>${caps?.ffmpeg_ok ? 'ffmpeg - найден' : 'ffmpeg не найден: положите папку engine рядом с программой'}</dd>
-        <dt>Распознавание текста</dt><dd>${(sys?.ocr_languages || []).map((l) => esc(l.name)).join(', ') || 'языки не установлены'}</dd>
+        <dt>Движок</dt><dd>${caps?.ffmpeg_ok ? 'ffmpeg' : 'ffmpeg не найден'}</dd>
+        <dt>Распознавание текста</dt><dd translate="no">${(sys?.ocr_languages || []).map((l) => esc(l.name)).join(', ') || 'языки не установлены'}</dd>
       </dl>
     </section>`;
   const body = $('#settingsBody');
   body.onclick = async (ev) => {
+    const lg = ev.target.closest('[data-lang]');
+    if (lg) { setLang(lg.dataset.lang); return; }
     const th = ev.target.closest('[data-theme-id]');
     if (th) { applyTheme(th.dataset.themeId); s.theme = th.dataset.themeId; saveSettingsSoon(); renderSettings(); return; }
     const par = ev.target.closest('[data-par]');
@@ -1320,6 +1355,93 @@ function renderGpuChip() {
   chip.title = 'Сведения о видеокарте';
 }
 
+// ── Language ─────────────────────────────────────────────────────────
+function setLang(id) {
+  state.settings.lang = id;
+  window.I18N?.setLang(id);
+  saveSettingsSoon();
+  if ($('#settings').open) renderSettings();
+}
+
+// First start: one question, remembered; changeable in Settings
+function askLanguage() {
+  return new Promise((resolve) => {
+    const d = document.createElement('dialog');
+    d.className = 'sheet lang-pick ui-pop-in';
+    d.setAttribute('translate', 'no');
+    d.innerHTML = `<div class="sheet-body">
+        <img src="icon.png" alt="" width="48" height="48">
+        <h2>Выберите язык · Choose a language</h2>
+        <div class="lang-actions">
+          ${LANGS.map(([id, name]) => `<button type="button" class="btn btn-lg ${id === 'ru' ? 'btn-primary' : 'btn-secondary ui-press--on-dark'} ui-press ui-focus" data-l="${id}">${name}</button>`).join('')}
+        </div>
+      </div>`;
+    document.body.appendChild(d);
+    d.addEventListener('cancel', (e) => e.preventDefault());
+    d.onclick = (e) => {
+      const b = e.target.closest('[data-l]');
+      if (!b) return;
+      setLang(b.dataset.l);
+      d.close();
+      d.remove();
+      resolve();
+    };
+    d.showModal();
+  });
+}
+
+// ── Updates (GitHub releases) ────────────────────────────────────────
+let updateInfo = null;
+function showUpdateButton() {
+  const b = $('#updateBtn');
+  if (!b || !updateInfo?.newer) return;
+  b.hidden = false;
+  b.title = `Доступна версия ${updateInfo.latest}`;
+  b.onclick = () => offerUpdate(true);
+}
+
+async function offerUpdate(manual) {
+  const u = updateInfo;
+  if (!u?.newer) return;
+  if (!manual && state.settings.skip_version === u.latest) return;
+  const mb = u.size ? ` (${fmtSize(u.size)})` : '';
+  const ok = await T.dialog.ask(`${L(`Доступна версия ${u.latest}`)}${mb}. ${L('Настройки и файлы не изменятся')}`,
+    { title: L('Доступна новая версия'), kind: 'info', okLabel: L('Скачать и установить'), cancelLabel: L('Позже') });
+  if (!ok) {
+    state.settings.skip_version = u.latest;
+    saveSettingsSoon();
+    return;
+  }
+  installUpdate();
+}
+
+async function installUpdate() {
+  const b = $('#updateBtn');
+  const label = b.querySelector('span');
+  b.disabled = true;
+  const un = await T.event.listen('update', (e) => {
+    const { done, total } = e.payload;
+    if (total) label.textContent = `${Math.round((done / total) * 100)}%`;
+  });
+  label.textContent = '0%';
+  try {
+    if (unsavedCount()) {
+      const n = unsavedCount();
+      const go = await T.dialog.ask(L(`${n} ${plural(n, 'готовый файл не сохранён', 'готовых файла не сохранены', 'готовых файлов не сохранены')} на диск. При выходе ${n === 1 ? 'он будет удалён' : 'они будут удалены'}`),
+        { title: L('Обновить'), kind: 'warning', okLabel: L('Обновить'), cancelLabel: L('Отмена') });
+      if (!go) throw new Error('cancel');
+    }
+    toast('Скачивание обновления', 'info', 3000);
+    await invoke('install_update', { url: updateInfo.url });
+  } catch (e) {
+    if (String(e?.message || e) !== 'cancel') toast(`Не удалось обновить: ${e}`, 'error', 8000);
+    label.textContent = 'Обновить';
+    b.disabled = false;
+  } finally {
+    un?.();
+  }
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────
 async function boot() {
   BetterUI.init(document);
@@ -1349,8 +1471,12 @@ async function boot() {
     }
   }
   saveSettingsSoon();
+  window.I18N?.setLang(state.settings.lang || 'ru');
   renderNav();
   go('home');
+  if (!state.settings.lang) await askLanguage();
+  // The only network request: is there a newer release on GitHub?
+  invoke('check_update').then((u) => { updateInfo = u; showUpdateButton(); offerUpdate(false); }).catch(() => {});
   initDragDrop();
   T.event.listen('job', (e) => onJobEvent(e.payload));
 
@@ -1362,7 +1488,7 @@ async function boot() {
       const n = unsavedCount();
       if (!n || closing) return;
       e.preventDefault();
-      const ok = await T.dialog.ask(`${n} ${plural(n, 'готовый файл не сохранён', 'готовых файла не сохранены', 'готовых файлов не сохранены')} на диск. При выходе ${n === 1 ? 'он будет удалён' : 'они будут удалены'}`, { title: 'Выйти без сохранения?', kind: 'warning', okLabel: 'Выйти', cancelLabel: 'Остаться' });
+      const ok = await T.dialog.ask(L(`${n} ${plural(n, 'готовый файл не сохранён', 'готовых файла не сохранены', 'готовых файлов не сохранены')} на диск. При выходе ${n === 1 ? 'он будет удалён' : 'они будут удалены'}`), { title: L('Выйти без сохранения?'), kind: 'warning', okLabel: L('Выйти'), cancelLabel: L('Остаться') });
       if (ok) { closing = true; await win.destroy(); }
     });
   } catch (err) { uiLog(`close handler: ${err}`); }
@@ -1371,7 +1497,7 @@ async function boot() {
     state.sys = sys;
     renderGpuChip();
     if (TOOLS[state.current].fields.some((f) => f.type === 'reco' || f.type === 'lang')) renderFields();
-    if (!sys.caps.ffmpeg_ok) toast('Движок ffmpeg не найден: видео и аудио недоступны. Положите папку engine рядом с программой', 'error', 10000);
+    if (!sys.caps.ffmpeg_ok) toast('ffmpeg не найден, видео и аудио недоступны', 'error', 10000);
   });
 
   uiLog(`boot ok · dialog=${!!T.dialog} webview=${!!T.webview} event=${!!T.event} theme=${state.settings.theme}`);

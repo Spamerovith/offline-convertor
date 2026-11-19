@@ -3,6 +3,7 @@
 mod engine;
 mod jobs;
 mod settings;
+mod update;
 
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -116,7 +117,7 @@ async fn save_result(path: String, dest: String) -> Result<String, String> {
         let from = PathBuf::from(&path);
         let to = PathBuf::from(&dest);
         if !engine::paths::is_temp(&from) || !from.is_file() {
-            return Err("Временный файл не найден - обработайте файл ещё раз".to_string());
+            return Err("Временный файл не найден, обработайте файл ещё раз".to_string());
         }
         if from == to {
             return Ok(dest);
@@ -174,6 +175,22 @@ fn ui_log(msg: String) {
 }
 
 #[tauri::command]
+async fn check_update() -> Result<update::UpdateInfo, String> {
+    tauri::async_runtime::spawn_blocking(update::check).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let a = app.clone();
+    tauri::async_runtime::spawn_blocking(move || update::install(&a, &url)).await.map_err(|e| e.to_string())??;
+    // The new version is already starting: leave so it owns the window.
+    jobs::cancel_all();
+    engine::paths::cleanup_all();
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
 fn open_path(path: String) {
     let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
 }
@@ -223,6 +240,7 @@ fn main() {
     });
     // Unsaved results from a previous run that ended abnormally.
     engine::paths::cleanup_all();
+    update::cleanup_old();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -243,7 +261,9 @@ fn main() {
             ui_log,
             save_result,
             save_to_folder,
-            discard_result
+            discard_result,
+            check_update,
+            install_update
         ])
         .build(tauri::generate_context!())
         .expect("error while building Offline Convertor")

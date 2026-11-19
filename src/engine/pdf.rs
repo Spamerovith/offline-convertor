@@ -225,7 +225,7 @@ pub fn run(src: &Path, o: &PdfOpts, ctx: &Ctx) -> JobResult {
     let dst = paths::reserve(src, ctx.out_dir.as_deref(), "_compressed", "pdf")?;
     let mut note = Some(format!("Пережато изображений: {replaced}"));
     let data: Vec<u8> = if buf.len() as u64 >= src_size {
-        note = Some("PDF уже сжат оптимально - сохранена копия".into());
+        note = Some("Сильнее сжать нельзя, сохранена копия".into());
         std::fs::read(src).map_err(|e| e.to_string())?
     } else {
         buf

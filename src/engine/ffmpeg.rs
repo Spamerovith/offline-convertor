@@ -399,6 +399,36 @@ pub fn encode_rgba(img: &image::RgbaImage, codec_args: &[String], format: &str) 
     Ok(data)
 }
 
+/// Runs raw RGBA pixels through an ffmpeg filter chain and returns the filtered pixels.
+pub fn filter_rgba(img: &image::RgbaImage, vf: &str) -> Result<image::RgbaImage, String> {
+    use std::io::{Read, Write};
+    let (w, h) = img.dimensions();
+    let mut ch = command()
+        .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s"])
+        .arg(format!("{w}x{h}"))
+        .args(["-i", "-", "-vf"])
+        .arg(format!("{vf},format=rgba"))
+        .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let mut stdin = ch.stdin.take().unwrap();
+    let raw = img.as_raw().clone();
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&raw);
+    });
+    let mut out = Vec::with_capacity((w * h * 4) as usize);
+    ch.stdout.take().unwrap().read_to_end(&mut out).map_err(|e| e.to_string())?;
+    let _ = writer.join();
+    let st = ch.wait_with_output().map_err(|e| e.to_string())?;
+    if !st.status.success() || out.len() != (w * h * 4) as usize {
+        return Err(format!("Ошибка фильтра: {}", String::from_utf8_lossy(&st.stderr).trim()));
+    }
+    image::RgbaImage::from_raw(w, h, out).ok_or_else(|| "Ошибка фильтра".to_string())
+}
+
 pub fn os(v: impl Into<OsString>) -> OsString {
     v.into()
 }

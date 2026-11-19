@@ -1,6 +1,6 @@
 [package]
 name = "offline-convertor"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 description = "Offline Convertor - offline media converter and compressor"
 default-run = "offline-convertor"
@@ -45,6 +45,8 @@ png = "0.18"
 rayon = "1"
 pdf-extract = "0.12"
 zstd = "0.13"
+ssimulacra2 = "0.5"
+ureq = { version = "3", features = ["json"] }
 
 [features]
 default = ["custom-protocol"]

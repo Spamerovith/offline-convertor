@@ -41,6 +41,9 @@ pub struct EncDevice {
     pub ten_bit: bool,
     pub uhq: bool,
     pub split: bool,
+    /// NVENC lookahead level (SDK 13): much better bit distribution at almost no speed cost
+    #[serde(default)]
+    pub la_level: bool,
     pub cuda: bool,
 }
 
@@ -236,6 +239,8 @@ fn detect_nvidia(has_nv: bool) -> Vec<EncDevice> {
                     d.ten_bit = d.hevc && test_enc("hevc_nvenc", &["-gpu", g.as_str(), "-pix_fmt", "p010le", "-profile:v", "main10"]);
                     d.uhq = d.hevc && test_enc("hevc_nvenc", &["-gpu", g.as_str(), "-tune", "uhq", "-preset", "p7"]);
                     d.split = d.hevc && test_enc_size("hevc_nvenc", "1920x1080", &["-gpu", g.as_str(), "-preset", "p7", "-split_encode_mode", "2"]);
+                    let la_enc = if d.av1 { "av1_nvenc" } else { "hevc_nvenc" };
+                    d.la_level = (d.av1 || d.hevc) && test_enc(la_enc, &["-gpu", g.as_str(), "-preset", "p7", "-rc-lookahead", "32", "-lookahead_level", "2"]);
                     let dev = format!("cuda=cu:{i}");
                     d.cuda = ffmpeg::quick_ok(&[
                         "-init_hw_device", dev.as_str(), "-f", "lavfi", "-i", "color=c=gray:s=320x240", "-frames:v", "2",
@@ -345,13 +350,13 @@ fn detect() -> Capabilities {
     }
     let names = |f: &dyn Fn(&EncDevice) -> bool| pool.iter().filter(|d| f(d)).map(|d| d.name.replace("NVIDIA GeForce ", "")).collect::<Vec<_>>().join(", ");
     let (rc, reason) = if pool.iter().any(|d| d.av1) {
-        ("av1", format!("AV1 на видеокарте ({}): на 30-50 % меньше H.264 и примерно на 20 % меньше HEVC при том же качестве", names(&|d| d.av1)))
+        ("av1", format!("Кодирование на {}. Самый компактный кодек", names(&|d| d.av1)))
     } else if pool.iter().any(|d| d.hevc) {
-        ("hevc", format!("HEVC (H.265) на видеокарте ({}): вдвое меньше H.264 при том же качестве. AV1-кодирование эта видеокарта не поддерживает", names(&|d| d.hevc)))
+        ("hevc", format!("Кодирование на {}. AV1 эта видеокарта не поддерживает", names(&|d| d.hevc)))
     } else if pool.iter().any(|d| d.h264) {
-        ("h264", format!("H.264 на видеокарте ({}): быстро; для максимального сжатия выберите AV1 на процессоре", names(&|d| d.h264)))
+        ("h264", format!("Кодирование на {}", names(&|d| d.h264)))
     } else {
-        ("av1", "Видеокарта с аппаратным кодированием не найдена: AV1 (SVT-AV1) на процессоре - медленнее, но с лучшим сжатием".to_string())
+        ("av1", "Видеокарта не найдена, кодирование на процессоре".to_string())
     };
 
     Capabilities {

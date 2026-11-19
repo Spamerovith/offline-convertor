@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// "" (not chosen yet - ask on first start), "ru", "en"
+    pub lang: String,
+    /// Update offer the user dismissed ("1.3.0"), so it isn't shown again on every start
+    pub skip_version: String,
     pub theme: String,
     /// "manual" (keep results until «Загрузить на диск»), "source" (next to the source), "folder" (out_dir)
     pub out_mode: String,
@@ -26,6 +30,8 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            lang: String::new(),
+            skip_version: String::new(),
             theme: "graphite".into(),
             out_mode: String::new(),
             out_dir: String::new(),

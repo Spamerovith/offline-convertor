@@ -25,6 +25,8 @@ pub struct ImageOpts {
     pub keep_metadata: bool,
     /// Background for transparent images saved as JPEG/BMP
     pub background: String,
+    /// Gentle denoise + contrast adaptive sharpening before encoding
+    pub enhance: bool,
 }
 
 impl Default for ImageOpts {
@@ -37,8 +39,93 @@ impl Default for ImageOpts {
             scale: 0,
             keep_metadata: true,
             background: "#ffffff".into(),
+            enhance: false,
         }
     }
+}
+
+/// «Улучшение» for photos: light spatial denoise, then contrast adaptive sharpening (AMD CAS in ffmpeg).
+/// Both are mild on purpose: no halos, no oversharpened look.
+pub const IMAGE_ENHANCE: &str = "hqdn3d=1.2:1.0:0:0,cas=0.35";
+
+// ── Perceptual JPEG quality search (SSIMULACRA2) ────────────────────────────────
+
+/// Maps the 0..100 slider to a SSIMULACRA2 target. 85 (default) → 81: no visible difference at normal
+/// viewing distance; 95 → 90: visually lossless even at 1:1.
+fn ssim2_target(q: f64) -> f64 {
+    if q >= 85.0 { 81.0 + (q - 85.0) * 0.9 } else { 81.0 - (85.0 - q) * 0.6 }
+}
+
+fn to_ssim_rgb(img: &RgbImage) -> ssimulacra2::Rgb {
+    let d: Vec<[f32; 3]> = img.pixels().map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]).collect();
+    ssimulacra2::Rgb::new(d, img.width() as usize, img.height() as usize, ssimulacra2::TransferCharacteristic::SRGB, ssimulacra2::ColorPrimaries::BT709)
+        .expect("valid size")
+}
+
+/// Four 512 px tiles (aligned to JPEG blocks) from different parts of the picture:
+/// the score of this mosaic follows the full-image score within 1-2 points at 1/7 of the time.
+fn sample_mosaic(img: &RgbImage) -> RgbImage {
+    let (w, h) = img.dimensions();
+    let t = 512u32;
+    if w <= t * 2 || h <= t * 2 {
+        return img.clone();
+    }
+    let mut out = RgbImage::new(t * 2, t * 2);
+    for (k, (fx, fy)) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)].iter().enumerate() {
+        let x = ((((w as f64 * fx) as u32).saturating_sub(t / 2)).min(w - t) / 16) * 16;
+        let y = ((((h as f64 * fy) as u32).saturating_sub(t / 2)).min(h - t) / 16) * 16;
+        let tile = image::imageops::crop_imm(img, x, y, t, t).to_image();
+        image::imageops::replace(&mut out, &tile, ((k as u32 % 2) * t) as i64, ((k as u32 / 2) * t) as i64);
+    }
+    out
+}
+
+/// Smallest JPEG (quality and chroma mode) whose SSIMULACRA2 score reaches the target.
+/// Returns (quality, full-resolution chroma), or None when the target can't be reached within `max_q`
+/// (then the caller keeps the plain slider quality).
+fn search_jpeg(img: &DynamicImage, target: f64, max_q: f32, base_q: f32, bg: [u8; 3]) -> Option<(f32, bool)> {
+    let rgb = flatten(img, bg);
+    let m = sample_mosaic(&rgb);
+    let reference = to_ssim_rgb(&m);
+    let mimg = DynamicImage::ImageRgb8(m.clone());
+    let score = |q: f32, full: bool| -> Option<(f64, usize)> {
+        let data = encode_jpeg_ex(&mimg, q, None, None, bg, Some(full)).ok()?;
+        let dec = image::load_from_memory_with_format(&data, ImageFormat::Jpeg).ok()?.to_rgb8();
+        let s = ssimulacra2::compute_frame_ssimulacra2(reference.clone(), to_ssim_rgb(&dec)).ok()?;
+        Some((s, data.len()))
+    };
+    // Never bigger than the plain encode at the slider quality.
+    let base_len = encode_jpeg_ex(&mimg, base_q, None, None, bg, None).ok()?.len();
+    let mut best: Option<(f32, bool, usize)> = None;
+    for full in [false, true] {
+        // Binary search on quality 30..max_q (score grows with quality).
+        let (mut lo, mut hi) = (30.0f32, max_q);
+        let mut found: Option<(f32, usize)> = None;
+        if let Some((s, n)) = score(hi, full) {
+            if s < target {
+                // This chroma mode can't reach the target within the limit
+            } else {
+                found = Some((hi, n));
+                while hi - lo > 2.0 {
+                    let mid = ((lo + hi) / 2.0).round();
+                    match score(mid, full) {
+                        Some((s, n)) if s >= target => {
+                            hi = mid;
+                            found = Some((mid, n));
+                        }
+                        Some(_) => lo = mid,
+                        None => break,
+                    }
+                }
+            }
+        }
+        if let Some((q, n)) = found {
+            if n <= base_len && best.is_none_or(|b| n < b.2) {
+                best = Some((q, full, n));
+            }
+        }
+    }
+    best.map(|(q, f, _)| (q, f))
 }
 
 pub struct Loaded {
@@ -148,7 +235,8 @@ pub fn estimate_jpeg_quality(data: &[u8]) -> Option<f64> {
     None
 }
 
-fn encode_jpeg(img: &DynamicImage, q: f32, icc: Option<&[u8]>, exif: Option<&[u8]>, bg: [u8; 3]) -> Result<Vec<u8>, String> {
+/// `full_chroma`: None = 4:4:4 from quality 80 up, Some(x) = forced
+fn encode_jpeg_ex(img: &DynamicImage, q: f32, icc: Option<&[u8]>, exif: Option<&[u8]>, bg: [u8; 3], full_chroma: Option<bool>) -> Result<Vec<u8>, String> {
     let gray = matches!(img.color(), image::ColorType::L8 | image::ColorType::L16);
     let (w, h) = (img.width() as usize, img.height() as usize);
     let (cs, buf): (mozjpeg::ColorSpace, Vec<u8>) =
@@ -172,7 +260,7 @@ fn encode_jpeg(img: &DynamicImage, q: f32, icc: Option<&[u8]>, exif: Option<&[u8
         c.set_optimize_coding(true);
         if !gray {
             // Full-resolution colour at high quality: no colour bleeding on saturated edges.
-            if q >= 80.0 {
+            if full_chroma.unwrap_or(q >= 80.0) {
                 c.set_chroma_sampling_pixel_sizes((1, 1), (1, 1));
             } else {
                 c.set_chroma_sampling_pixel_sizes((2, 2), (2, 2));
@@ -267,7 +355,7 @@ fn encode_via_ffmpeg(img: &DynamicImage, fmt: &str, q: f64) -> Result<Vec<u8>, S
                 if q >= 95.0 { "yuv444p".into() } else { "yuv420p".into() }, "-frames:v".into(), "1".into(),
             ];
             if alpha {
-                return Err("AVIF с прозрачностью не поддерживается - выберите WebP или PNG".into());
+                return Err("AVIF с прозрачностью не поддерживается, выберите WebP или PNG".into());
             }
             ffmpeg::encode_rgba(&rgba, &args, "avif")
         }
@@ -368,26 +456,53 @@ pub fn run(src: &Path, o: &ImageOpts, ctx: &Ctx) -> JobResult {
         }
     };
 
+    let mut notes: Vec<String> = vec![];
+    if o.enhance {
+        ctx.stage(0.4, "Улучшение");
+        let rgba = img.to_rgba8();
+        match ffmpeg::filter_rgba(&rgba, IMAGE_ENHANCE) {
+            Ok(f) => {
+                img = if has_real_alpha(&img) { DynamicImage::ImageRgba8(f) } else { DynamicImage::ImageRgb8(DynamicImage::ImageRgba8(f).to_rgb8()) };
+                notes.push("улучшено".into());
+            }
+            Err(_) => notes.push("улучшение не применено".into()),
+        }
+    }
+    let modified = resized || o.enhance;
+
     ctx.stage(0.5, "Кодирование");
     let mut note: Option<String> = None;
     let data: Vec<u8> = match fmt.as_str() {
         "jpg" => {
             let mut jq = q as f32;
-            if compress && src_fmt == "jpg" && !resized {
+            let mut full_chroma: Option<bool> = None;
+            let mut max_q = 95.0f32;
+            if compress && src_fmt == "jpg" && !modified {
                 // Never re-encode above the source quality: that only adds bytes.
                 if let Some(sq) = estimate_jpeg_quality(&src_bytes) {
                     jq = jq.min((sq as f32 - 1.0).max(40.0));
+                    max_q = max_q.min((sq as f32 - 1.0).max(40.0));
+                }
+            }
+            if q < 100.0 && img.width() >= 16 && img.height() >= 16 {
+                // Every photo gets exactly as much quality as it needs to look like the source.
+                ctx.stage(0.55, "Подбор качества");
+                // Upper bound: a little above the slider value, so a file never grows over the fixed-quality result.
+                let hi = max_q.min(q as f32 + 3.0).max(30.0);
+                if let Some((sq, full)) = search_jpeg(&img, ssim2_target(q), hi, jq, bg) {
+                    jq = sq;
+                    full_chroma = Some(full);
                 }
             }
             let icc = if strip { None } else { loaded.icc.as_deref() };
             let exif = if keep_exif_raw { loaded.exif.as_deref() } else { None };
             note = Some(format!("JPEG · качество {}", jq.round()));
-            encode_jpeg(&img, jq, icc, exif, bg)?
+            encode_jpeg_ex(&img, jq, icc, exif, bg, full_chroma)?
         }
         "png" => {
             if q >= 100.0 {
                 note = Some("PNG без потерь".into());
-                if src_fmt == "png" && !resized {
+                if src_fmt == "png" && !modified {
                     oxi(&src_bytes, strip)
                 } else {
                     encode_png_lossless(&img, strip)?
@@ -396,12 +511,12 @@ pub fn run(src: &Path, o: &ImageOpts, ctx: &Ctx) -> JobResult {
                 let rgba = img.to_rgba8();
                 match png_lossy(&rgba, q, strip) {
                     Some(d) => {
-                        note = Some("PNG · умная палитра".into());
+                        note = Some("PNG · палитра".into());
                         d
                     }
                     None => {
-                        note = Some("PNG без потерь (палитра испортила бы качество)".into());
-                        if src_fmt == "png" && !resized {
+                        note = Some("PNG без потерь".into());
+                        if src_fmt == "png" && !modified {
                             oxi(&src_bytes, strip)
                         } else {
                             encode_png_lossless(&img, strip)?
@@ -427,12 +542,19 @@ pub fn run(src: &Path, o: &ImageOpts, ctx: &Ctx) -> JobResult {
     let out_ext = if fmt == src_fmt && !src_ext.is_empty() { src_ext.clone() } else { fmt.clone() };
     let suffix = if compress { "_compressed" } else { "" };
     let dst = paths::reserve(src, ctx.out_dir.as_deref(), suffix, &out_ext)?;
-    let final_data: &[u8] = if compress && fmt == src_fmt && !resized && data.len() as u64 >= src_size {
-        note = Some("Изображение уже сжато оптимально - сохранена копия".into());
+    let final_data: &[u8] = if compress && fmt == src_fmt && !modified && data.len() as u64 >= src_size {
+        note = Some("Сильнее сжать нельзя, сохранена копия".into());
         &src_bytes
     } else {
         &data
     };
+    if !notes.is_empty() {
+        let extra = notes.join(" · ");
+        note = Some(match note {
+            Some(n) => format!("{n} · {extra}"),
+            None => extra,
+        });
+    }
     if let Err(e) = std::fs::write(&dst, final_data) {
         paths::discard(&dst);
         return Err(format!("Не удалось записать файл: {e}"));
