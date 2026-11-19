@@ -1,6 +1,6 @@
 [package]
 name = "offline-convertor"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 description = "Offline Convertor - offline media converter and compressor"
 default-run = "offline-convertor"

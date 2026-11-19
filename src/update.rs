@@ -79,12 +79,23 @@ fn old_path(exe: &std::path::Path) -> PathBuf {
 }
 
 /// Removes the previous exe left by an update (it can't be deleted while it runs).
+/// Right after an update the previous process may still be closing, so retry for a while.
 pub fn cleanup_old() {
     if let Ok(e) = exe() {
-        let _ = std::fs::remove_file(old_path(&e));
         let mut n = e.as_os_str().to_owned();
         n.push(".new");
         let _ = std::fs::remove_file(PathBuf::from(n));
+        let old = old_path(&e);
+        if old.exists() {
+            std::thread::spawn(move || {
+                for _ in 0..30 {
+                    if std::fs::remove_file(&old).is_ok() || !old.exists() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            });
+        }
     }
 }
 

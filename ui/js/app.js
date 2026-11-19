@@ -1474,9 +1474,10 @@ async function boot() {
   window.I18N?.setLang(state.settings.lang || 'ru');
   renderNav();
   go('home');
+  // The only network request: is there a newer release on GitHub? (runs while the language is chosen)
+  const upd = invoke('check_update').then((u) => { updateInfo = u; showUpdateButton(); return u; }).catch(() => null);
   if (!state.settings.lang) await askLanguage();
-  // The only network request: is there a newer release on GitHub?
-  invoke('check_update').then((u) => { updateInfo = u; showUpdateButton(); offerUpdate(false); }).catch(() => {});
+  upd.then((u) => { if (u) offerUpdate(false); });
   initDragDrop();
   T.event.listen('job', (e) => onJobEvent(e.payload));
 
