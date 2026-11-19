@@ -40,6 +40,8 @@ pub struct VideoOpts {
     pub gif_width: u32,
     /// Gentle temporal denoise + contrast adaptive sharpening
     pub enhance: bool,
+    /// Split frames between the two NVENC engines (None = speed profile default)
+    pub split: Option<bool>,
 }
 
 impl Default for VideoOpts {
@@ -60,6 +62,7 @@ impl Default for VideoOpts {
             hw: "auto".into(),
             speed: "balanced".into(),
             enhance: false,
+            split: None,
             gif_fps: 15.0,
             gif_width: 480,
         }
@@ -355,7 +358,7 @@ fn build(
                         _ => "h264_nvenc",
                     };
                     let d = dev.cloned().unwrap_or_default();
-                    let uhq = sp.uhq && d.uhq && fam != Family::H264;
+                    let uhq = sp.uhq && d.uhq && fam != Family::H264 && o.split != Some(true);
                     let la = if uhq || fam == Family::H264 || !d.la_level { None } else { sp.la_level };
                     if !uhq && fam != Family::H264 {
                         cq = (cq + sp.cq_offset + la.map(|l| l.1).unwrap_or(0.0)).min(63.0);
@@ -367,7 +370,7 @@ fn build(
                         a.extend([os("-lookahead_level"), os(lvl)]);
                     }
                     a.extend(["-spatial-aq", "1", "-temporal-aq", "1"].map(os));
-                    if sp.split && !uhq && fam != Family::H264 && d.split {
+                    if o.split.unwrap_or(sp.split) && !uhq && fam != Family::H264 && d.split {
                         // Both NVENC engines work on one video.
                         a.extend(["-split_encode_mode", "2"].map(os));
                     }

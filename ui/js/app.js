@@ -341,6 +341,10 @@ function renderView() {
             <span class="spacer"></span>
             <button class="btn btn-sm btn-accent ui-press ui-focus" type="button" id="saveAll" hidden>${icon('download', 16)}<span id="saveAllLabel">Загрузить всё</span></button>
             <button class="btn btn-sm btn-quiet ui-press ui-press--on-dark ui-focus" type="button" id="clearDone">Убрать сохранённые</button>
+            ${['compress-video', 'convert-video'].includes(id) && state.sys?.caps?.encoders?.nvenc_split ? `<span class="enh" title="Кадры делятся между двумя блоками кодирования видеокарты">
+              <button type="button" class="ui-check ui-focus" role="checkbox" id="splitEnc" aria-checked="${state.tools[id].opts.split !== false}" aria-labelledby="splitLbl"><svg viewBox="0 0 24 24" aria-hidden="true"><path pathLength="20" d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
+              <label id="splitLbl" for="splitEnc">2 блока NVENC</label>
+            </span>` : ''}
             ${ENHANCE_TOOLS.includes(id) ? `<span class="enh" title="Мягкое шумоподавление и резкость">
               <button type="button" class="ui-check ui-focus" role="checkbox" id="enhance" aria-checked="${!!state.tools[id].opts.enhance}" aria-labelledby="enhLbl"><svg viewBox="0 0 24 24" aria-hidden="true"><path pathLength="20" d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
               <label id="enhLbl" for="enhance">Улучшение</label>
@@ -375,6 +379,17 @@ function renderView() {
   $('#clearAll').onclick = () => clearItems((i) => i.state !== 'running' && i.state !== 'queued', true);
   $('#cancelAll').onclick = cancelAllInTool;
   $('#saveAll').onclick = saveAll;
+  const sp = $('#splitEnc');
+  if (sp) {
+    const tg = () => {
+      const v = sp.getAttribute('aria-checked') !== 'true';
+      sp.setAttribute('aria-checked', String(v));
+      state.tools[state.current].opts.split = v;
+      saveSettingsSoon();
+    };
+    sp.onclick = tg;
+    $('#splitLbl').onclick = (e) => { e.preventDefault(); tg(); };
+  }
   const enh = $('#enhance');
   if (enh) {
     const toggle = () => {
@@ -1497,7 +1512,7 @@ async function boot() {
   invoke('system_info').then((sys) => {
     state.sys = sys;
     renderGpuChip();
-    if (TOOLS[state.current].fields.some((f) => f.type === 'reco' || f.type === 'lang')) renderFields();
+    if (TOOLS[state.current].fields.some((f) => f.type === 'reco' || f.type === 'lang')) renderView();
     if (!sys.caps.ffmpeg_ok) toast('ffmpeg не найден, видео и аудио недоступны', 'error', 10000);
   });
 

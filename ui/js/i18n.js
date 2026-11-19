@@ -31,7 +31,7 @@
     'Перетащите файлы или папки сюда': 'Drop files or folders here', 'Исходные файлы не изменяются': 'Source files are never changed',
     'Отпустите, чтобы добавить': 'Release to add', 'Выбрать файлы': 'Choose files', 'Папку': 'Folder',
     'Загрузить всё': 'Save all', 'Убрать сохранённые': 'Remove saved', 'Очистить': 'Clear', 'Отменить всё': 'Cancel all',
-    'Улучшение': 'Enhance', 'Мягкое шумоподавление и резкость': 'Gentle denoise and sharpening',
+    'Улучшение': 'Enhance', '2 блока NVENC': '2 NVENC engines', 'Кадры делятся между двумя блоками кодирования видеокарты': 'Frames are split between the two encoding engines of the graphics card', 'Мягкое шумоподавление и резкость': 'Gentle denoise and sharpening',
     'Дополнительные настройки': 'Settings', 'Начать': 'Start', 'Обработать заново': 'Process again', 'Готово': 'Done',
     'Добавьте файлы': 'Add files', 'Добавьте файлы для обработки': 'Add files to process',
     'Готов к обработке': 'Ready', 'Отменено': 'Cancelled', 'Ошибка': 'Error', 'В очереди': 'In queue', 'Запуск': 'Starting',
