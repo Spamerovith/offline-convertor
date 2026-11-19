@@ -1,0 +1,47 @@
+Offline Convertor uses the following third-party components
+
+FFmpeg (media engine, run as a separate program)
+  License: GNU GPL v3 (full build by Gyan Doshi, gyan.dev)
+  Source: https://ffmpeg.org and https://github.com/GyanD/codexffmpeg
+  The release exe carries an unmodified ffmpeg.exe packed with zstd and unpacks it to
+  %LOCALAPPDATA%\OfflineConvertor\engine on first start
+
+libimagequant (PNG palette quantisation)
+  License: GNU GPL v3 or later
+  Source: https://github.com/ImageOptim/libimagequant
+
+mozjpeg (JPEG encoder)
+  License: IJG, BSD-3-Clause, zlib
+  Source: https://github.com/mozilla/mozjpeg
+
+oxipng, image, lopdf, pdf-extract, docx-rs, Tauri and other Rust crates
+  Licenses: MIT and/or Apache-2.0 (see Cargo.lock for the full list)
+
+Geologica font (ui/fonts)
+  License: SIL Open Font License 1.1 (ui/fonts/OFL-LICENSE.txt)
+  Source: https://github.com/googlefonts/geologica
+
+better-design interaction kit (ui/css/interaction-kit.css, ui/js/interaction-kit.js)
+  License: MIT
+
+  MIT License
+
+  Copyright (c) 2026 Moddingflow
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.

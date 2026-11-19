@@ -1,0 +1,44 @@
+﻿<!doctype html>
+<html lang="ru" data-theme="graphite">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Offline Convertor</title>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/interaction-kit.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    // Apply the saved theme before first paint (no flash).
+    try { const t = localStorage.getItem('oc-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Разделы">
+      <div class="brand"><img src="icon.png" alt=""><b>Offline Convertor</b></div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot">
+        <button class="gpu-chip ui-press ui-press--surface ui-press--on-dark ui-focus" id="gpuChip" type="button" data-state="detecting" style="border:0;cursor:pointer;text-align:left">
+          <i class="dot" aria-hidden="true"></i><span>Определение видеокарты…</span>
+        </button>
+        <button class="nav-item ui-press ui-press--surface ui-press--on-dark ui-focus" id="openSettings" type="button"></button>
+      </div>
+    </aside>
+    <main class="main" id="main"></main>
+  </div>
+
+  <dialog class="sheet ui-pop-in" id="settings" aria-labelledby="settingsTitle">
+    <div class="sheet-head">
+      <h2 id="settingsTitle">Настройки</h2>
+      <button class="icon-btn ui-press ui-press--on-dark ui-focus" type="button" id="closeSettings" aria-label="Закрыть"></button>
+    </div>
+    <div class="sheet-body" id="settingsBody"></div>
+  </dialog>
+
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+  <script src="js/interaction-kit.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
